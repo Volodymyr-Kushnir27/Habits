@@ -34,6 +34,12 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
 
+  headerBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
   kicker: {
     color: '#7FA8FF',
     fontSize: 12,
@@ -73,7 +79,6 @@ const styles = StyleSheet.create({
   },
 
   addCard: {
-    flexDirection: 'row',
     gap: 10,
     padding: 12,
     borderRadius: 20,
@@ -84,7 +89,7 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    flex: 1,
+    width: '100%',
     height: 48,
     borderRadius: 14,
     backgroundColor: '#0E1628',
@@ -182,6 +187,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  monthDayTextToday: {
+    color: '#DCEBFF',
+    fontWeight: '800',
+  },
+
   emptyCard: {
     marginTop: 20,
     borderRadius: 22,
@@ -261,6 +271,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  habitDescription: {
+    color: '#A9B8D3',
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+
   habitHint: {
     color: '#7E8CA8',
     fontSize: 12,
@@ -301,8 +318,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
 
-  futureDayDisabled: {
+  dayCellDisabled: {
     opacity: 0.35,
+  },
+
+  futureDayDisabled: {
+    opacity: 0.8,
   },
 
   modalOverlay: {
@@ -338,6 +359,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
     color: '#F4F8FF',
     paddingHorizontal: 14,
+  },
+
+  modalTextarea: {
+    minHeight: 90,
+    height: 90,
+    paddingTop: 12,
+    marginTop: 12,
   },
 
   modalColorsRow: {

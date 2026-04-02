@@ -26,11 +26,13 @@ import {
   getHabits,
   createHabit,
   updateHabitTitle,
+  updateHabitDescription,
   updateHabitColor,
   deleteHabit,
   getMonthHabitLogs,
   toggleHabitDay,
 } from '../../services/habits';
+import { getFlameStats } from '../../services/puzzle';
 
 import MadeInBadge from '../../components/MadeInBadge';
 import styles from './HabitsScreen.styles';
@@ -61,7 +63,7 @@ function getGlowStyle(color = '#67A8FF') {
   };
 }
 
-function DayCell({ active, color }) {
+function DayCell({ active, color, disabled }) {
   return (
     <View
       style={[
@@ -71,6 +73,7 @@ function DayCell({ active, color }) {
           borderColor: color || '#67A8FF',
         },
         active && getGlowStyle(color || '#67A8FF'),
+        disabled && styles.dayCellDisabled,
       ]}
     />
   );
@@ -112,11 +115,13 @@ export default function HabitsScreen() {
 
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
   const [newHabitTitle, setNewHabitTitle] = useState('');
+  const [newHabitDescription, setNewHabitDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0]);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingHabitId, setEditingHabitId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [editingDescription, setEditingDescription] = useState('');
   const [editingColor, setEditingColor] = useState(HABIT_COLORS[0]);
 
   const monthStart = startOfMonth(currentMonthDate);
@@ -140,10 +145,16 @@ export default function HabitsScreen() {
     queryFn: () => getMonthHabitLogs({ fromDate, toDate }),
   });
 
+  const flameStatsQuery = useQuery({
+    queryKey: ['flame_stats'],
+    queryFn: getFlameStats,
+  });
+
   const createHabitMutation = useMutation({
     mutationFn: createHabit,
     onSuccess: () => {
       setNewHabitTitle('');
+      setNewHabitDescription('');
       setSelectedColor(HABIT_COLORS[0]);
       queryClient.invalidateQueries({ queryKey: ['habits'] });
     },
@@ -157,6 +168,15 @@ export default function HabitsScreen() {
       queryClient.invalidateQueries({ queryKey: ['history_logs'] });
     },
     onError: (e) => Alert.alert('Rename error', e.message),
+  });
+
+  const updateDescriptionMutation = useMutation({
+    mutationFn: updateHabitDescription,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['habits'] });
+      queryClient.invalidateQueries({ queryKey: ['history_logs'] });
+    },
+    onError: (e) => Alert.alert('Description error', e.message),
   });
 
   const recolorMutation = useMutation({
@@ -174,6 +194,7 @@ export default function HabitsScreen() {
       queryClient.invalidateQueries({ queryKey: ['habits'] });
       queryClient.invalidateQueries({ queryKey: ['habit_logs_month'] });
       queryClient.invalidateQueries({ queryKey: ['history_logs'] });
+      queryClient.invalidateQueries({ queryKey: ['flame_stats'] });
     },
     onError: (e) => {
       Alert.alert('Delete error', e.message);
@@ -185,6 +206,8 @@ export default function HabitsScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habit_logs_month'] });
       queryClient.invalidateQueries({ queryKey: ['history_logs'] });
+      queryClient.invalidateQueries({ queryKey: ['flame_stats'] });
+      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks'] });
     },
     onError: (e) => Alert.alert('Toggle error', e.message),
   });
@@ -195,6 +218,7 @@ export default function HabitsScreen() {
 
     createHabitMutation.mutate({
       title,
+      description: newHabitDescription.trim(),
       color: selectedColor,
     });
   }
@@ -202,6 +226,7 @@ export default function HabitsScreen() {
   function openEditModal(habit) {
     setEditingHabitId(habit.id);
     setEditingTitle(habit.title);
+    setEditingDescription(habit.description || '');
     setEditingColor(habit.color || HABIT_COLORS[0]);
     setEditModalVisible(true);
   }
@@ -216,6 +241,11 @@ export default function HabitsScreen() {
         title,
       });
 
+      await updateDescriptionMutation.mutateAsync({
+        habitId: editingHabitId,
+        description: editingDescription,
+      });
+
       await recolorMutation.mutateAsync({
         habitId: editingHabitId,
         color: editingColor,
@@ -224,6 +254,7 @@ export default function HabitsScreen() {
       setEditModalVisible(false);
       setEditingHabitId(null);
       setEditingTitle('');
+      setEditingDescription('');
       setEditingColor(HABIT_COLORS[0]);
     } catch (e) {
       Alert.alert('Edit error', e.message);
@@ -258,13 +289,14 @@ export default function HabitsScreen() {
 
   const habits = habitsQuery.data || [];
   const logs = logsQuery.data || [];
+  const flameStats = flameStatsQuery.data || { earned: 0, spent: 0, available: 0 };
 
   const logsMap = new Map();
   for (const log of logs) {
     logsMap.set(`${log.habit_id}_${log.done_date}`, !!log.is_done);
   }
 
-  if (habitsQuery.isLoading || logsQuery.isLoading) {
+  if (habitsQuery.isLoading || logsQuery.isLoading || flameStatsQuery.isLoading) {
     return (
       <View style={styles.loaderWrap}>
         <ActivityIndicator size="large" color="#67A8FF" />
@@ -273,8 +305,6 @@ export default function HabitsScreen() {
   }
 
   const realTodayKey = format(new Date(), 'yyyy-MM-dd');
-  const viewedMonthKey = format(currentMonthDate, 'yyyy-MM');
-  const realMonthKey = format(new Date(), 'yyyy-MM');
 
   return (
     <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
@@ -307,9 +337,16 @@ export default function HabitsScreen() {
                 </View>
               </View>
 
-              <View style={styles.headerBadge}>
-                <Ionicons name="sparkles-outline" size={16} color="#8EC5FF" />
-                <Text style={styles.headerBadgeText}>{habits.length}</Text>
+              <View style={styles.headerBadges}>
+                <View style={styles.headerBadge}>
+                  <Ionicons name="grid-outline" size={16} color="#8EC5FF" />
+                  <Text style={styles.headerBadgeText}>{habits.length}</Text>
+                </View>
+
+                <View style={styles.headerBadge}>
+                  <Ionicons name="flame-outline" size={16} color="#FFB347" />
+                  <Text style={styles.headerBadgeText}>{flameStats.available}</Text>
+                </View>
               </View>
             </View>
 
@@ -319,6 +356,14 @@ export default function HabitsScreen() {
                 placeholderTextColor="#7C8AA5"
                 value={newHabitTitle}
                 onChangeText={setNewHabitTitle}
+                style={styles.input}
+              />
+
+              <TextInput
+                placeholder="Description"
+                placeholderTextColor="#7C8AA5"
+                value={newHabitDescription}
+                onChangeText={setNewHabitDescription}
                 style={styles.input}
               />
 
@@ -357,11 +402,22 @@ export default function HabitsScreen() {
                 <View style={styles.monthHeader}>
                   <View style={styles.leftSpacer} />
                   <View style={styles.monthDaysHeaderRow}>
-                    {monthDays.map((day) => (
-                      <Text key={format(day, 'yyyy-MM-dd')} style={styles.monthDayText}>
-                        {format(day, 'd')}
-                      </Text>
-                    ))}
+                    {monthDays.map((day) => {
+                      const dateKey = format(day, 'yyyy-MM-dd');
+                      const isToday = dateKey === realTodayKey;
+
+                      return (
+                        <Text
+                          key={dateKey}
+                          style={[
+                            styles.monthDayText,
+                            isToday && styles.monthDayTextToday,
+                          ]}
+                        >
+                          {format(day, 'd')}
+                        </Text>
+                      );
+                    })}
                   </View>
                 </View>
 
@@ -400,6 +456,10 @@ export default function HabitsScreen() {
                                   <Text style={styles.habitTitle}>{habit.title}</Text>
                                 </Pressable>
 
+                                {habit.description ? (
+                                  <Text style={styles.habitDescription}>{habit.description}</Text>
+                                ) : null}
+
                                 <Text style={styles.habitHint}>Tap title to rename</Text>
                                 <Text style={styles.streakText}>
                                   🔥 {longestStreak} day{longestStreak === 1 ? '' : 's'}
@@ -418,21 +478,14 @@ export default function HabitsScreen() {
                           <View style={styles.daysRow}>
                             {monthDays.map((day) => {
                               const dateKey = format(day, 'yyyy-MM-dd');
-
-                              let isFuture = false;
-
-                              if (viewedMonthKey > realMonthKey) {
-                                isFuture = true;
-                              } else if (viewedMonthKey === realMonthKey) {
-                                isFuture = dateKey > realTodayKey;
-                              }
+                              const isOnlyTodayAllowed = dateKey === realTodayKey;
 
                               const active = logsMap.get(`${habit.id}_${dateKey}`) || false;
 
                               return (
                                 <Pressable
                                   key={dateKey}
-                                  disabled={isFuture}
+                                  disabled={!isOnlyTodayAllowed}
                                   onPress={() =>
                                     toggleMutation.mutate({
                                       habitId: habit.id,
@@ -440,9 +493,13 @@ export default function HabitsScreen() {
                                       isDone: !active,
                                     })
                                   }
-                                  style={isFuture ? styles.futureDayDisabled : null}
+                                  style={!isOnlyTodayAllowed ? styles.futureDayDisabled : null}
                                 >
-                                  <DayCell active={active} color={habit.color || '#67A8FF'} />
+                                  <DayCell
+                                    active={active}
+                                    color={habit.color || '#67A8FF'}
+                                    disabled={!isOnlyTodayAllowed}
+                                  />
                                 </Pressable>
                               );
                             })}
@@ -471,6 +528,16 @@ export default function HabitsScreen() {
                     style={styles.modalInput}
                     placeholder="Habit name"
                     placeholderTextColor="#6D7B93"
+                  />
+
+                  <TextInput
+                    value={editingDescription}
+                    onChangeText={setEditingDescription}
+                    style={[styles.modalInput, styles.modalTextarea]}
+                    placeholder="Description"
+                    placeholderTextColor="#6D7B93"
+                    multiline
+                    textAlignVertical="top"
                   />
 
                   <View style={styles.modalColorsRow}>

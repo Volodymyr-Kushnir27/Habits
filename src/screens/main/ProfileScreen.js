@@ -19,6 +19,8 @@ import { getMyProfile, updateMyProfile, signOut } from '../../services/auth';
 import { uploadAvatar } from '../../services/storage';
 import MadeInBadge from '../../components/MadeInBadge';
 
+
+
 export default function ProfileScreen() {
   const queryClient = useQueryClient();
   const [draftName, setDraftName] = useState('');
@@ -48,41 +50,44 @@ export default function ProfileScreen() {
     onError: (e) => Alert.alert('Logout error', e.message),
   });
 
-  async function handlePickAvatar() {
-    try {
-      const profile = profileQuery.data;
-      if (!profile?.id) {
-        Alert.alert('Error', 'Profile not loaded yet');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.85,
-      });
-
-      if (result.canceled) return;
-
-      const asset = result.assets?.[0];
-      if (!asset?.uri) return;
-
-      setUploading(true);
-
-      const publicUrl = await uploadAvatar(profile.id, asset.uri);
-
-      await saveMutation.mutateAsync({
-        name: draftName,
-        avatar_url: publicUrl,
-      });
-    } catch (e) {
-      console.error('AVATAR UPLOAD ERROR:', e);
-      Alert.alert('Avatar upload error', e.message);
-    } finally {
-      setUploading(false);
+ async function handlePickAvatar() {
+  try {
+    const profile = profileQuery.data;
+    if (!profile?.id) {
+      Alert.alert('Error', 'Profile not loaded yet');
+      return;
     }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+
+    setUploading(true);
+
+    const uploadResult = await uploadAvatar(profile.id, asset.uri);
+    // очікуємо:
+    // { publicUrl, storagePath }
+
+    await saveMutation.mutateAsync({
+      name: draftName,
+      avatar_url: uploadResult.publicUrl,
+    });
+    Alert.alert('Успіх', 'Аватар завантажено. Генерація пазлів почалась.');
+  } catch (e) {
+    console.error('AVATAR UPLOAD ERROR:', e);
+    Alert.alert('Avatar upload error', e.message);
+  } finally {
+    setUploading(false);
   }
+}
 
   function handleSaveName() {
     saveMutation.mutate({

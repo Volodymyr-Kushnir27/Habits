@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import HabitsScreen from '../screens/main/HabitsScreen';
 import HistoryScreen from '../screens/main/HistoryScreen';
+import PuzzleScreen from '../screens/main/PuzzleScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
@@ -19,6 +20,7 @@ export default function MainTabs() {
 
           if (route.name === 'Habits') iconName = 'grid-outline';
           if (route.name === 'History') iconName = 'time-outline';
+          if (route.name === 'Puzzle') iconName = 'extension-puzzle-outline';
           if (route.name === 'Profile') iconName = 'person-outline';
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -27,6 +29,7 @@ export default function MainTabs() {
     >
       <Tab.Screen name="Habits" component={HabitsScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
+      <Tab.Screen name="Puzzle" component={PuzzleScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

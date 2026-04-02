@@ -12,6 +12,38 @@ async function getCurrentUser() {
   return user;
 }
 
+async function getEarnedFlamesCount(userId) {
+  const { count, error } = await supabase
+    .from('habit_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('is_done', true);
+
+  if (error) throw error;
+  return count || 0;
+}
+
+async function getSpentFlamesCount(userId) {
+  const { count, error } = await supabase
+    .from('puzzle_unlocks')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    if (
+      error.message?.includes('relation') ||
+      error.message?.includes('does not exist') ||
+      error.message?.includes('puzzle_unlocks')
+    ) {
+      return 0;
+    }
+
+    throw error;
+  }
+
+  return count || 0;
+}
+
 export async function getHabits({ fromDate, toDate }) {
   const user = await getCurrentUser();
 
@@ -29,7 +61,12 @@ export async function getHabits({ fromDate, toDate }) {
   return data || [];
 }
 
-export async function createHabit({ title, color = '#67A8FF', icon = null }) {
+export async function createHabit({
+  title,
+  description = '',
+  color = '#67A8FF',
+  icon = null,
+}) {
   const user = await getCurrentUser();
 
   const { data, error } = await supabase
@@ -37,6 +74,7 @@ export async function createHabit({ title, color = '#67A8FF', icon = null }) {
     .insert({
       user_id: user.id,
       title: title.trim(),
+      description: description.trim(),
       color,
       icon,
       is_archived: false,
@@ -53,6 +91,18 @@ export async function updateHabitTitle({ habitId, title }) {
   const { data, error } = await supabase
     .from('habits')
     .update({ title: title.trim() })
+    .eq('id', habitId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateHabitDescription({ habitId, description }) {
+  const { data, error } = await supabase
+    .from('habits')
+    .update({ description: description.trim() })
     .eq('id', habitId)
     .select()
     .single();
@@ -129,6 +179,21 @@ export async function toggleHabitDay({ habitId, doneDate, isDone }) {
     return true;
   }
 
+  if (existing.is_done === isDone) {
+    return true;
+  }
+
+  if (existing.is_done === true && isDone === false) {
+    const earned = await getEarnedFlamesCount(user.id);
+    const spent = await getSpentFlamesCount(user.id);
+
+    if (earned - 1 < spent) {
+      throw new Error(
+        'Цей вогник вже витрачений на пазл. Спочатку зароби ще вогники, щоб зняти позначку.'
+      );
+    }
+  }
+
   const { error } = await supabase
     .from('habit_logs')
     .update({ is_done: isDone })
@@ -180,6 +245,7 @@ export async function getAllHistoryLogs() {
       habits (
         id,
         title,
+        description,
         color,
         created_at,
         archived_at
@@ -207,6 +273,7 @@ export async function getHistoryByRange({ fromDate, toDate }) {
       habits (
         id,
         title,
+        description,
         color,
         created_at,
         archived_at

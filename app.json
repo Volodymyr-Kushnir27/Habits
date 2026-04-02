@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "habits-ios",
-    "slug": "habits-ios",
+    "name": "RitM",
+    "slug": "ritm",
+    "type": "module",
     "scheme": "habitsios",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +10,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/1.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
