@@ -1,14 +1,19 @@
 import { supabaseAdmin } from '../supabaseAdmin.js';
 
 export async function uploadOriginal({ buffer, path }) {
+  const contentType = path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+
   const { error } = await supabaseAdmin.storage
     .from('puzzles-originals')
     .upload(path, buffer, {
-      contentType: 'image/jpeg',
+      contentType,
       upsert: true,
     });
 
-  if (error) throw error;
+  if (error) {
+    console.error('UPLOAD ORIGINAL ERROR:', error);
+    throw error;
+  }
 
   return path;
 }

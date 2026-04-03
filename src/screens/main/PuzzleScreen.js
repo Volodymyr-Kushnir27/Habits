@@ -1,33 +1,33 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Alert,
   View,
   Text,
-  Pressable,
+  StyleSheet,
   ActivityIndicator,
+  Pressable,
+  Image,
   ScrollView,
-  useWindowDimensions,
-  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Defs, ClipPath, Path, Image as SvgImage } from 'react-native-svg';
 
-import MadeInBadge from '../../components/MadeInBadge';
 import {
-  DEFAULT_PUZZLE_YEAR,
   getFlameStats,
-  getPuzzlesByYear,
+  getMyLatestAvatarJob,
+  getMyLatestPuzzleSet,
+  getPuzzlesBySetId,
   getPuzzleUnlocks,
   unlockPuzzlePiece,
   getPuzzlePiecePublicUrl,
 } from '../../services/puzzle';
-import styles from './PuzzleScreen.styles';
+
+function resolvePieceFile(piece) {
+  return piece?.file || piece?.path || null;
+}
 
 export default function PuzzleScreen() {
   const queryClient = useQueryClient();
-  const { width: screenWidth } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const flameStatsQuery = useQuery({
@@ -35,279 +35,392 @@ export default function PuzzleScreen() {
     queryFn: getFlameStats,
   });
 
-  const puzzlesQuery = useQuery({
-    queryKey: ['puzzles', DEFAULT_PUZZLE_YEAR],
-    queryFn: () => getPuzzlesByYear(DEFAULT_PUZZLE_YEAR),
+  const jobQuery = useQuery({
+    queryKey: ['my_avatar_job'],
+    queryFn: getMyLatestAvatarJob,
+    refetchInterval: 4000,
   });
 
-  const puzzles = puzzlesQuery.data || [];
-  const currentPuzzle = puzzles[currentIndex] || null;
+  const setQuery = useQuery({
+    queryKey: ['my_puzzle_set'],
+    queryFn: getMyLatestPuzzleSet,
+    refetchInterval: 4000,
+  });
 
-  useEffect(() => {
-    if (currentIndex > 0 && currentIndex >= puzzles.length) {
-      setCurrentIndex(Math.max(puzzles.length - 1, 0));
-    }
-  }, [currentIndex, puzzles.length]);
+  const puzzlesQuery = useQuery({
+    queryKey: ['puzzles_by_set', setQuery.data?.id],
+    queryFn: () => getPuzzlesBySetId(setQuery.data?.id),
+    enabled: !!setQuery.data?.id && setQuery.data?.status === 'done',
+  });
 
   const unlocksQuery = useQuery({
-    queryKey: ['puzzle_unlocks', currentPuzzle?.puzzle_key],
-    queryFn: () => getPuzzleUnlocks({ puzzleKey: currentPuzzle.puzzle_key }),
-    enabled: !!currentPuzzle?.puzzle_key,
+    queryKey: ['puzzle_unlocks'],
+    queryFn: getPuzzleUnlocks,
   });
 
   const unlockMutation = useMutation({
     mutationFn: unlockPuzzlePiece,
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks'] });
       queryClient.invalidateQueries({ queryKey: ['flame_stats'] });
-      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks', currentPuzzle?.puzzle_key] });
     },
-    onError: (e) => Alert.alert('Puzzle error', e.message),
   });
 
+  const puzzles = puzzlesQuery.data || [];
+  const currentPuzzle = puzzles[currentIndex] || null;
   const unlocks = unlocksQuery.data || [];
-  const unlockedSet = useMemo(
-    () => new Set(unlocks.map((item) => item.piece_index)),
-    [unlocks]
-  );
+  const flameStats = flameStatsQuery.data || { flames: 0 };
 
-  if (flameStatsQuery.isLoading || puzzlesQuery.isLoading) {
-    return (
-      <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color="#67A8FF" />
-      </View>
-    );
+  const unlockedSet = useMemo(() => {
+    const map = new Set();
+
+    unlocks.forEach((item) => {
+      const key = `${item.puzzle_key}:${item.piece_index}`;
+      map.add(key);
+    });
+
+    return map;
+  }, [unlocks]);
+
+  function isUnlocked(puzzleKey, pieceIndex) {
+    return unlockedSet.has(`${puzzleKey}:${pieceIndex}`);
   }
 
-  const flameStats = flameStatsQuery.data || { earned: 0, spent: 0, available: 0 };
+  async function handleUnlockPiece(pieceIndex) {
+    try {
+      if (!currentPuzzle?.puzzle_key) return;
 
-  if (!currentPuzzle) {
+      await unlockMutation.mutateAsync({
+        puzzleKey: currentPuzzle.puzzle_key,
+        pieceIndex,
+      });
+    } catch (error) {
+      console.error('UNLOCK ERROR:', error);
+    }
+  }
+
+  const loading =
+    flameStatsQuery.isLoading ||
+    jobQuery.isLoading ||
+    setQuery.isLoading ||
+    (setQuery.data?.status === 'done' && puzzlesQuery.isLoading) ||
+    unlocksQuery.isLoading;
+
+  if (loading) {
     return (
-      <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
-        <View style={styles.screen}>
-          <View style={styles.emptyWrap}>
-            <Text style={styles.kicker}>PUZZLE</Text>
-            <Text style={styles.title}>Puzzle</Text>
-            <Text style={styles.emptyText}>Поки що пазли не додані.</Text>
-          </View>
-          <MadeInBadge />
+      <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#67A8FF" />
         </View>
       </LinearGradient>
     );
   }
 
-  const canGoPrev = currentIndex > 0;
-  const canGoNext = currentIndex < puzzles.length - 1;
+  if (!currentPuzzle) {
+    const job = jobQuery.data;
 
-  const boardWidth = Number(currentPuzzle.image_width || 1200);
-  const boardHeight = Number(currentPuzzle.image_height || 800);
-  const manifest = Array.isArray(currentPuzzle.piece_manifest) ? currentPuzzle.piece_manifest : [];
-  const version = currentPuzzle.updated_at || currentPuzzle.created_at || `${currentPuzzle.puzzle_key}`;
+    let helperText = 'Завантаж аватар у профілі та дочекайся обробки.';
+    if (job?.status === 'pending') helperText = 'Задача на генерацію поставлена в чергу.';
+    if (job?.status === 'processing') {
+      helperText = `Генеруємо пазли... ${job.progress_percent ?? 0}%`;
+    }
+    if (job?.status === 'failed') {
+      helperText = `Помилка генерації: ${job.error_text || 'невідома помилка'}`;
+    }
 
-  const maxBoardWidth = Math.min(screenWidth - 28, 860);
-  const boardAspectRatio = boardWidth / boardHeight;
-
-  function handlePrev() {
-    if (!canGoPrev) return;
-    setCurrentIndex((prev) => prev - 1);
+    return (
+      <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.kicker}>PUZZLE</Text>
+          <Text style={styles.title}>Puzzle</Text>
+          <Text style={styles.emptyText}>Ще немає згенерованого набору пазлів.</Text>
+          <Text style={styles.emptySubText}>{helperText}</Text>
+        </View>
+      </LinearGradient>
+    );
   }
 
-  function handleNext() {
-    if (!canGoNext) return;
-    setCurrentIndex((prev) => prev + 1);
-  }
+  const manifest = Array.isArray(currentPuzzle.piece_manifest)
+    ? currentPuzzle.piece_manifest
+    : [];
 
-  function handleUnlock(pieceIndex) {
-    if (unlockedSet.has(pieceIndex)) return;
-
-    unlockMutation.mutate({
-      puzzleKey: currentPuzzle.puzzle_key,
-      pieceIndex,
-      piecesCount: currentPuzzle.pieces_count || 30,
-    });
-  }
+  const totalPieces = currentPuzzle.pieces_count || manifest.length || 0;
+  const unlockedCount = manifest.filter((piece) =>
+    isUnlocked(currentPuzzle.puzzle_key, piece.index)
+  ).length;
 
   return (
-    <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.kicker}>PUZZLE</Text>
+    <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.kicker}>PUZZLE</Text>
+        <Text style={styles.title}>Puzzle</Text>
 
-          <View style={styles.headerRow}>
-            <View style={styles.headerLeft}>
-              <Text style={styles.title}>Puzzle</Text>
-              <Text style={styles.subtitle}>
-                Збирай вогники кожного дня для розблокування пазлів
-              </Text>
-            </View>
-
-            <View style={styles.flameBadge}>
-              <Ionicons name="flame-outline" size={16} color="#FFB347" />
-              <Text style={styles.flameBadgeText}>{flameStats.available}</Text>
-            </View>
+        <View style={styles.topCard}>
+          <View style={styles.flamesBox}>
+            <Ionicons name="flame" size={18} color="#F59E0B" />
+            <Text style={styles.flamesText}>{flameStats.flames ?? 0}</Text>
           </View>
 
-          <View style={styles.navRow}>
-            <Pressable
-              style={[styles.navButton, !canGoPrev && styles.navButtonDisabled]}
-              onPress={handlePrev}
-              disabled={!canGoPrev}
-            >
-              <Ionicons name="chevron-back" size={18} color="#DCEBFF" />
-            </Pressable>
+          <Text style={styles.puzzleTitle}>
+            {currentPuzzle.title || `Puzzle ${currentIndex + 1}`}
+          </Text>
 
-            <View style={styles.navCenter}>
-              <Text style={styles.navTitle}>{currentPuzzle.title}</Text>
-              <Text style={styles.navMeta}>
+          <Text style={styles.progressText}>
+            Відкрито шматків: {unlockedCount} / {totalPieces}
+          </Text>
+
+          {!!currentPuzzle.preview_image_url && (
+            <Image
+              source={{ uri: currentPuzzle.preview_image_url }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
+          )}
+
+          {puzzles.length > 1 && (
+            <View style={styles.navRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.navButton,
+                  currentIndex === 0 && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
+                disabled={currentIndex === 0}
+              >
+                <Ionicons name="chevron-back" size={18} color="#FFF" />
+                <Text style={styles.navButtonText}>Назад</Text>
+              </Pressable>
+
+              <Text style={styles.navIndex}>
                 {currentIndex + 1} / {puzzles.length}
               </Text>
-            </View>
 
-            <Pressable
-              style={[styles.navButton, !canGoNext && styles.navButtonDisabled]}
-              onPress={handleNext}
-              disabled={!canGoNext}
-            >
-              <Ionicons name="chevron-forward" size={18} color="#DCEBFF" />
-            </Pressable>
-          </View>
-
-          <View style={styles.statsCard}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Зароблено</Text>
-              <Text style={styles.statValue}>{flameStats.earned}</Text>
-            </View>
-
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Витрачено</Text>
-              <Text style={styles.statValue}>{flameStats.spent}</Text>
-            </View>
-
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Відкрито</Text>
-              <Text style={styles.statValue}>
-                {unlocks.length}/{currentPuzzle.pieces_count}
-              </Text>
-            </View>
-          </View>
-
-          {unlocksQuery.isLoading ? (
-            <View style={styles.unlocksLoader}>
-              <ActivityIndicator size="large" color="#67A8FF" />
-            </View>
-          ) : (
-            <View style={styles.boardOuter}>
-              <View style={[styles.boardFrame, { width: maxBoardWidth }]}>
-                <LinearGradient
-                  colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
-                  style={styles.boardGradient}
-                >
-                  <View
-                    style={[
-                      styles.board,
-                      {
-                        aspectRatio: boardAspectRatio,
-                      },
-                    ]}
-                  >
-                    {manifest.map((piece) => {
-                      const unlocked = unlockedSet.has(piece.index);
-                      const pieceUrl = getPuzzlePiecePublicUrl(piece.file, version);
-
-                      const pieceLeft = ((piece.slotX - piece.offsetX) / boardWidth) * 100;
-                      const pieceTop = ((piece.slotY - piece.offsetY) / boardHeight) * 100;
-                      const pieceWidth = (piece.pieceWidth / boardWidth) * 100;
-                      const pieceHeight = (piece.pieceHeight / boardHeight) * 100;
-
-                      const badgeCenterX =
-                        ((piece.offsetX + piece.slotWidth / 2) / piece.pieceWidth) * 100;
-                      const badgeCenterY =
-                        ((piece.offsetY + piece.slotHeight / 2) / piece.pieceHeight) * 100;
-
-                      const clipId = `clip_${currentPuzzle.puzzle_key}_${piece.index}`;
-
-                      return (
-                        <Pressable
-                          key={`piece_${piece.index}`}
-                          onPress={() => handleUnlock(piece.index)}
-                          disabled={unlocked || unlockMutation.isPending}
-                          style={[
-                            styles.piecePressable,
-                            {
-                              left: `${pieceLeft}%`,
-                              top: `${pieceTop}%`,
-                              width: `${pieceWidth}%`,
-                              height: `${pieceHeight}%`,
-                            },
-                          ]}
-                        >
-                          <Svg
-                            width="100%"
-                            height="100%"
-                            viewBox={`0 0 ${piece.pieceWidth} ${piece.pieceHeight}`}
-                            style={[
-                              styles.pieceSvg,
-                              Platform.OS !== 'web' && styles.pieceShadowNative,
-                            ]}
-                          >
-                            <Defs>
-                              <ClipPath id={clipId}>
-                                <Path d={piece.path} />
-                              </ClipPath>
-                            </Defs>
-
-                            {unlocked ? (
-                              <SvgImage
-                                href={{ uri: pieceUrl }}
-                                x="0"
-                                y="0"
-                                width={piece.pieceWidth}
-                                height={piece.pieceHeight}
-                                preserveAspectRatio="none"
-                                clipPath={`url(#${clipId})`}
-                              />
-                            ) : (
-                              <>
-                                <Path
-                                  d={piece.path}
-                                  fill="rgba(255,255,255,0.03)"
-                                  stroke="rgba(255,255,255,0.09)"
-                                  strokeWidth="2"
-                                />
-                              </>
-                            )}
-                          </Svg>
-
-                          {!unlocked ? (
-                            <View
-                              pointerEvents="none"
-                              style={[
-                                styles.lockBadge,
-                                {
-                                  left: `${badgeCenterX}%`,
-                                  top: `${badgeCenterY}%`,
-                                  marginLeft: -23,
-                                  marginTop: -20,
-                                },
-                              ]}
-                            >
-                              <View style={styles.badgeInner}>
-                                <Ionicons name="lock-closed-outline" size={14} color="#8EA4C8" />
-                                <Text style={styles.pieceLockedText}>1 🔥</Text>
-                              </View>
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </LinearGradient>
-              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.navButton,
+                  currentIndex >= puzzles.length - 1 && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() =>
+                  setCurrentIndex((prev) =>
+                    Math.min(prev + 1, puzzles.length - 1)
+                  )
+                }
+                disabled={currentIndex >= puzzles.length - 1}
+              >
+                <Text style={styles.navButtonText}>Далі</Text>
+                <Ionicons name="chevron-forward" size={18} color="#FFF" />
+              </Pressable>
             </View>
           )}
-        </ScrollView>
+        </View>
 
-        <MadeInBadge />
-      </View>
+        <View style={styles.gridCard}>
+          <Text style={styles.sectionTitle}>Шматки пазла</Text>
+          <Text style={styles.sectionSubTitle}>
+            Натисни на закритий шматок, щоб відкрити його.
+          </Text>
+
+          <View style={styles.grid}>
+            {manifest.map((piece) => {
+              const unlocked = isUnlocked(currentPuzzle.puzzle_key, piece.index);
+              const pieceFile = resolvePieceFile(piece);
+              const pieceUrl = pieceFile ? getPuzzlePiecePublicUrl(pieceFile) : null;
+
+              return (
+                <Pressable
+                  key={piece.index}
+                  style={({ pressed }) => [
+                    styles.pieceBox,
+                    unlocked ? styles.pieceUnlocked : styles.pieceLocked,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => {
+                    if (!unlocked) handleUnlockPiece(piece.index);
+                  }}
+                  disabled={unlocked || unlockMutation.isPending}
+                >
+                  {unlocked && pieceUrl ? (
+                    <Image
+                      source={{ uri: pieceUrl }}
+                      style={styles.pieceImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.lockWrap}>
+                      <Ionicons name="lock-closed" size={18} color="#9CA3AF" />
+                      <Text style={styles.lockText}>#{piece.index + 1}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
     </LinearGradient>
   );
 }
+
+const styles = StyleSheet.create({
+  gradient: {
+    flex: 1,
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 40,
+    gap: 16,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  kicker: {
+    marginTop: 10,
+    color: '#67A8FF',
+    fontSize: 12,
+    letterSpacing: 2,
+    fontWeight: '700',
+  },
+  title: {
+    color: '#FFF',
+    fontSize: 34,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  emptyText: {
+    color: '#FFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  emptySubText: {
+    color: '#CBD5E1',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  topCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    padding: 16,
+    gap: 12,
+  },
+  gridCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    padding: 16,
+    gap: 12,
+  },
+  flamesBox: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  flamesText: {
+    color: '#FCD34D',
+    fontWeight: '800',
+  },
+  puzzleTitle: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  progressText: {
+    color: '#CBD5E1',
+    fontSize: 14,
+  },
+  previewImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  navButton: {
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  navButtonText: {
+    color: '#FFF',
+    fontWeight: '700',
+  },
+  navIndex: {
+    color: '#E5E7EB',
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionSubTitle: {
+    color: '#CBD5E1',
+    fontSize: 14,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  pieceBox: {
+    width: '18%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieceUnlocked: {
+    backgroundColor: '#111827',
+  },
+  pieceLocked: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  pieceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  lockWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  lockText: {
+    color: '#9CA3AF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.86,
+  },
+  disabled: {
+    opacity: 0.45,
+  },
+});

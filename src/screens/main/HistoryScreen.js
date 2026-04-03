@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ActivityIndicator,
   ScrollView,
   Pressable,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   format,
   startOfMonth,
@@ -20,9 +20,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { getHistoryByRange } from '../../services/habits';
+import { deleteHistoryEntry } from '../../services/history';
 import MadeInBadge from '../../components/MadeInBadge';
+import { styles } from './HistoryScreen.styles';
 
 export default function HistoryScreen() {
+  const queryClient = useQueryClient();
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
 
   const monthStart = startOfMonth(currentMonthDate);
@@ -36,10 +39,30 @@ export default function HistoryScreen() {
     queryFn: () => getHistoryByRange({ fromDate, toDate }),
   });
 
+  const deleteEntryMutation = useMutation({
+  mutationFn: deleteHistoryEntry,
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['history_logs'] });
+    queryClient.invalidateQueries({ queryKey: ['habit_logs'] });
+  },
+});
+
   const days = useMemo(
     () => eachDayOfInterval({ start: monthStart, end: monthEnd }),
     [monthStart, monthEnd]
   );
+
+  async function handleDeleteHistoryEntry(item) {
+    try {
+      await deleteEntryMutation.mutateAsync({
+        habitId: item.habit_id,
+        doneDate: item.done_date,
+      });
+    } catch (error) {
+      console.error('DELETE HISTORY ENTRY ERROR:', error);
+      Alert.alert('Помилка', error.message || 'Не вдалося видалити запис');
+    }
+  }
 
   if (historyQuery.isLoading) {
     return (
@@ -94,17 +117,32 @@ export default function HistoryScreen() {
                 </View>
 
                 {records.length === 0 ? (
-                  <Text style={styles.emptyDayText}>No completed habits</Text>
+                  <Text style={styles.emptyDayText}>Немає виконаних звичок</Text>
                 ) : (
                   records.map((item) => (
-                    <View key={item.id} style={styles.row}>
-                      <View
-                        style={[
-                          styles.dot,
-                          { backgroundColor: item.habits?.color || '#67A8FF' },
+                    <View key={item.id} style={styles.historyItemRow}>
+                      <View style={styles.historyItemLeft}>
+                        <View
+                          style={[
+                            styles.dot,
+                            { backgroundColor: item.habits?.color || '#67A8FF' },
+                          ]}
+                        />
+                        <Text style={styles.rowText}>
+                          {item.habits?.title || 'Звичка'}
+                        </Text>
+                      </View>
+
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.deleteButton,
+                          pressed && styles.pressed,
                         ]}
-                      />
-                      <Text style={styles.rowText}>{item.habits?.title || 'Habit'}</Text>
+                        onPress={() => handleDeleteHistoryEntry(item)}
+                        disabled={deleteEntryMutation.isPending}
+                      >
+                        <Ionicons name="close" size={16} color="#F87171" />
+                      </Pressable>
                     </View>
                   ))
                 )}
@@ -118,111 +156,3 @@ export default function HistoryScreen() {
     </LinearGradient>
   );
 }
-
-const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-
-  screen: {
-    flex: 1,
-    position: 'relative',
-  },
-
-  loaderWrap: {
-    flex: 1,
-    backgroundColor: '#0B1020',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  container: {
-    paddingTop: 56,
-    paddingHorizontal: 18,
-    paddingBottom: 120,
-  },
-
-  kicker: {
-    color: '#7FA8FF',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 6,
-  },
-
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-
-  monthNavButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  title: {
-    color: '#F7FAFF',
-    fontSize: 32,
-    fontWeight: '800',
-    textTransform: 'capitalize',
-  },
-
-  dayCard: {
-    marginBottom: 12,
-    borderRadius: 20,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-
-  dayHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: 12,
-  },
-
-  dayNumber: {
-    color: '#F7FAFF',
-    fontSize: 24,
-    fontWeight: '800',
-    marginRight: 8,
-  },
-
-  dayLabel: {
-    color: '#8EA4C8',
-    fontSize: 14,
-    textTransform: 'capitalize',
-  },
-
-  emptyDayText: {
-    color: '#6F829F',
-    fontSize: 14,
-  },
-
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-
-  dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-
-  rowText: {
-    color: '#F7FAFF',
-    fontSize: 15,
-  },
-});

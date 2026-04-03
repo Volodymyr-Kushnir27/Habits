@@ -86,7 +86,7 @@ export async function getMyProfile() {
   return created;
 }
 
-export async function updateMyProfile({ name, avatar_url }) {
+export async function updateMyProfile({ name, avatar_url, avatar_path }) {
   const {
     data: { user },
     error: userError,
@@ -97,11 +97,12 @@ export async function updateMyProfile({ name, avatar_url }) {
 
   const payload = {
     id: user.id,
-    email: user.email,
+    updated_at: new Date().toISOString(),
   };
 
   if (typeof name === 'string') payload.name = name.trim();
   if (typeof avatar_url === 'string') payload.avatar_url = avatar_url;
+  if (typeof avatar_path === 'string') payload.avatar_path = avatar_path;
 
   const { data, error } = await supabase
     .from('profiles')
