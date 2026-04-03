@@ -1,0 +1,13 @@
+{
+  "name": "habits-avatar-puzzle-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
+    "openai": "^6.33.0",
+    "sharp": "^0.34.5"
+  }
+}
