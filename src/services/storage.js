@@ -1,40 +1,60 @@
-import { decode } from 'base64-arraybuffer';
-import * as FileSystem from 'expo-file-system';
 import { supabase } from '../lib/supabase';
+import { decode } from 'base64-arraybuffer';
 
-export async function uploadAvatar(userId, imageUri) {
-  try {
-    if (!userId) throw new Error('No userId provided');
-    if (!imageUri) throw new Error('No imageUri provided');
+function guessExt(asset) {
+  if (asset?.fileName && asset.fileName.includes('.')) {
+    return asset.fileName.split('.').pop().toLowerCase();
+  }
+  if (asset?.mimeType === 'image/png') return 'png';
+  if (asset?.mimeType === 'image/webp') return 'webp';
+  return 'jpg';
+}
 
-    const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
-    const normalizedExt = fileExt === 'png' ? 'png' : 'jpg';
-    const mimeType = normalizedExt === 'png' ? 'image/png' : 'image/jpeg';
-    const filePath = `${userId}/avatar.${normalizedExt}`;
+export async function uploadAvatarToStorage({ userId, asset }) {
+  if (!userId) throw new Error('uploadAvatarToStorage: userId is required');
+  if (!asset) throw new Error('uploadAvatarToStorage: asset is required');
 
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
+  const contentType = asset.mimeType || 'image/jpeg';
+  const ext = guessExt(asset);
+  const storagePath = `${userId}/source/avatar_${Date.now()}.${ext}`;
+
+  let fileBody;
+
+  if (asset.file) {
+    fileBody = asset.file;
+  } else if (asset.base64) {
+    fileBody = decode(asset.base64);
+  } else if (asset.uri) {
+    const response = await fetch(asset.uri);
+    if (!response.ok) {
+      throw new Error('Не вдалося прочитати файл аватара');
+    }
+    fileBody = await response.arrayBuffer();
+  } else {
+    throw new Error('У asset немає file/base64/uri');
+  }
+
+  const { data, error } = await supabase.storage
+    .from('avatars')
+    .upload(storagePath, fileBody, {
+      contentType,
+      upsert: true,
+      cacheControl: '3600',
     });
 
-    const arrayBuffer = decode(base64);
+  if (error) throw error;
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, arrayBuffer, {
-        contentType: mimeType,
-        upsert: true,
-      });
+  const { data: publicData } = supabase.storage
+    .from('avatars')
+    .getPublicUrl(data.path);
 
-    if (uploadError) throw uploadError;
+  return {
+    storagePath: data.path,
+    publicUrl: publicData.publicUrl,
+    contentType,
+  };
+}
 
-    const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-
-    return {
-      publicUrl: data.publicUrl,
-      storagePath: filePath,
-    };
-  } catch (error) {
-    console.error('AVATAR UPLOAD ERROR:', error);
-    throw error;
-  }
+export async function uploadAvatar(userId, asset) {
+  return uploadAvatarToStorage({ userId, asset });
 }

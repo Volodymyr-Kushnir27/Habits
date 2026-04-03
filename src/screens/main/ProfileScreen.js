@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,7 +33,7 @@ export default function ProfileScreen() {
   const latestJobQuery = useQuery({
     queryKey: ['my_avatar_job'],
     queryFn: getMyLatestAvatarJob,
-    refetchInterval: 4000,
+    refetchInterval: 15000,
   });
 
   const saveMutation = useMutation({
@@ -49,7 +50,8 @@ export default function ProfileScreen() {
   }, [profileQuery.data?.name]);
 
   const profile = profileQuery.data || null;
-  const avatarUrl = profile?.avatar_url || null;
+  const avatarUrl = profile?.completed_avatar_url || profile?.avatar_url ||null;
+
   const latestJob = latestJobQuery.data || null;
 
   const statusText = useMemo(() => {
@@ -85,47 +87,52 @@ export default function ProfileScreen() {
         return;
       }
 
-      const permissionResult =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (Platform.OS !== 'web') {
+        const permissionResult =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-      if (!permissionResult.granted) {
-        Alert.alert('Немає доступу', 'Дозволь доступ до галереї');
-        return;
+        if (!permissionResult.granted) {
+          Alert.alert('Немає доступу', 'Дозволь доступ до галереї');
+          return;
+        }
+        console.log('PICKED ASSET:', asset);
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.9,
+        base64: Platform.OS !== 'web',
       });
 
       if (result.canceled) return;
 
       const asset = result.assets?.[0];
-      if (!asset?.uri) return;
+      if (!asset) return;
 
       setUploading(true);
 
-      const uploadResult = await uploadAvatar(profile.id, asset.uri);
+      const uploadResult = await uploadAvatar(profile.id, asset);
 
       await saveMutation.mutateAsync({
         name: draftName,
         avatar_url: uploadResult.publicUrl,
         avatar_path: uploadResult.storagePath,
       });
-
+      console.log('START ENQUEUE WITH PATH:', uploadResult.storagePath);
       await enqueueAvatarGenerationJob({
         avatarPath: uploadResult.storagePath,
-      });
-
+      }) ;
+        console.log('UPLOAD RESULT:', uploadResult);
       queryClient.invalidateQueries({ queryKey: ['my_avatar_job'] });
       queryClient.invalidateQueries({ queryKey: ['my_profile'] });
-      queryClient.invalidateQueries({ queryKey: ['my_puzzle_set'] });
+      queryClient.invalidateQueries({ queryKey: ['avatar_variants'] });
+      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks'] });
 
       Alert.alert(
         'Готово',
-        'Аватар завантажено. Генерація AI-пазлів запущена.'
+        'Аватар завантажено. Створено задачу на 10 AI-варіантів для пазлів.'
       );
     } catch (error) {
       console.error('AVATAR PICK ERROR:', error);
@@ -236,8 +243,8 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>AI пазли</Text>
           <Text style={styles.infoText}>
-            Після завантаження аватара створюється задача на генерацію AI-зображень,
-            потім вони ріжуться на пазли і з’являються у вкладці Puzzle.
+            Після зміни аватара створюється job. Далі worker генерує 10 AI-зображень,
+            ріже їх на пазли та додає у вкладку Puzzle.
           </Text>
 
           {latestJob ? (
@@ -274,19 +281,9 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 16,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  gradient: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40, gap: 16 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   kicker: {
     marginTop: 10,
     color: '#67A8FF',
@@ -386,12 +383,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  pressed: {
-    opacity: 0.86,
-  },
-  disabled: {
-    opacity: 0.6,
-  },
+  pressed: { opacity: 0.86 },
+  disabled: { opacity: 0.6 },
   sectionTitle: {
     color: '#FFF',
     fontSize: 18,
