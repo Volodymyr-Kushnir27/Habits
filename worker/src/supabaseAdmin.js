@@ -1,21 +1,22 @@
-import { supabaseAdmin } from '../supabaseAdmin.js';
+import 'dotenv/config';
+import { createClient } from '@supabase/supabase-js';
 
-export async function uploadOriginal(buffer, path) {
-  const contentType = path.endsWith('.png')
-    ? 'image/png'
-    : 'image/jpeg';
+const supabaseUrl =
+  process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
 
-  const { error } = await supabaseAdmin.storage
-    .from('puzzles-original')
-    .upload(path, buffer, {
-      contentType,
-      upsert: true,
-    });
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (error) {
-    console.error('UPLOAD ERROR:', error);
-    throw error;
-  }
-
-  return path;
+if (!supabaseUrl) {
+  throw new Error('Missing SUPABASE_URL or EXPO_PUBLIC_SUPABASE_URL');
 }
+
+if (!serviceRoleKey) {
+  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+}
+
+export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});

@@ -1,26 +1,28 @@
-import OpenAI from 'openai';
 import { supabaseAdmin } from '../supabaseAdmin.js';
-import { buildAvatarStylePrompts } from '../ai/prompts.js';
-import { generateFallbackVariants } from '../ai/stylizeFallback.js';
+import { generateImagesFromAvatar } from '../ai/generateImages.js';
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
+const GENERATED_BUCKET = 'avatar_generated';
+const PIECES_COUNT = 16;
 
 function nowIso() {
   return new Date().toISOString();
 }
 
 async function updateJob(jobId, patch) {
+  const payload = {
+    ...patch,
+    updated_at: nowIso(),
+  };
+
   const { error } = await supabaseAdmin
     .from('avatar_generation_jobs')
-    .update({
-      ...patch,
-      updated_at: nowIso(),
-    })
+    .update(payload)
     .eq('id', jobId);
 
-  if (error) throw error;
+  if (error) {
+    console.error('UPDATE JOB ERROR:', error);
+    throw error;
+  }
 }
 
 async function downloadAvatarBuffer(avatarPath) {
@@ -28,69 +30,53 @@ async function downloadAvatarBuffer(avatarPath) {
     .from('avatars')
     .download(avatarPath);
 
-  if (error) throw error;
-  return Buffer.from(await data.arrayBuffer());
+  if (error) {
+    console.error('DOWNLOAD AVATAR ERROR:', error);
+    throw error;
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-async function uploadGeneratedImage({ path, buffer }) {
+async function uploadGeneratedImage(path, buffer) {
   const { error } = await supabaseAdmin.storage
-    .from('avatar_generated')
+    .from(GENERATED_BUCKET)
     .upload(path, buffer, {
       contentType: 'image/png',
       upsert: true,
     });
 
-  if (error) throw error;
+  if (error) {
+    console.error('UPLOAD GENERATED IMAGE ERROR:', error);
+    throw error;
+  }
 }
 
 async function insertVariant({ job, idx, prompt, generatedPath }) {
+  const payload = {
+    user_id: job.user_id,
+    job_id: job.id,
+    idx,
+    prompt,
+    generated_path: generatedPath,
+    pieces_count: PIECES_COUNT,
+    is_completed: false,
+  };
+
   const { error } = await supabaseAdmin
     .from('avatar_variants')
-    .insert({
-      user_id: job.user_id,
-      job_id: job.id,
-      idx,
-      prompt,
-      generated_path: generatedPath,
-      pieces_count: 16,
-      is_completed: false,
-    });
+    .insert(payload);
 
-  if (error) throw error;
-}
-
-async function generateWithOpenAI({ avatarBuffer, prompts }) {
-  if (!openai) return null;
-
-  const variants = [];
-
-  for (let i = 0; i < prompts.length; i++) {
-    const p = prompts[i];
-
-    const result = await openai.images.edit({
-      model: 'gpt-image-1',
-      image: avatarBuffer,
-      prompt: `Preserve facial identity and make a square avatar portrait. Style: ${p.title}.`,
-      size: '1024x1024',
-    });
-
-    const b64 = result?.data?.[0]?.b64_json;
-    if (!b64) {
-      throw new Error(`OpenAI did not return image for prompt ${p.code}`);
-    }
-
-    variants.push({
-      index: i,
-      code: p.code,
-      title: p.title,
-      imageBuffer: Buffer.from(b64, 'base64'),
-    });
+  if (error) {
+    console.error('INSERT VARIANT ERROR:', error, payload);
+    throw error;
   }
-
-  return variants;
 }
 
 export async function processAvatarJob(job) {
+  console.log('PROCESS JOB START:', job.id, job.avatar_path);
+
   try {
     await updateJob(job.id, {
       status: 'processing',
@@ -102,48 +88,50 @@ export async function processAvatarJob(job) {
     const avatarBuffer = await downloadAvatarBuffer(job.avatar_path);
 
     await updateJob(job.id, {
-      progress_stage: 'preparing_prompts',
-      progress_percent: 10,
+      progress_stage: 'generating_ai_images',
+      progress_percent: 15,
     });
 
-    const prompts = buildAvatarStylePrompts();
-
-    await updateJob(job.id, {
-      progress_stage: 'generating_images',
-      progress_percent: 20,
+    const generated = await generateImagesFromAvatar({
+      avatarBuffer,
+      userId: job.user_id,
     });
 
-    let generatedVariants;
+    console.log('GENERATED IMAGES RESULT:', Array.isArray(generated), generated?.length);
 
-    try {
-      generatedVariants = await generateWithOpenAI({
-        avatarBuffer,
-        prompts,
-      });
-    } catch (e) {
-      console.error('OPENAI GENERATION FAILED, FALLBACK ENABLED:', e);
-      generatedVariants = await generateFallbackVariants(avatarBuffer, prompts);
+    if (!Array.isArray(generated) || generated.length === 0) {
+      throw new Error('AI did not return any generated images');
     }
 
-    for (let i = 0; i < generatedVariants.length; i++) {
-      const item = generatedVariants[i];
-      const path = `${job.user_id}/${job.id}/${String(i).padStart(2, '0')}.png`;
+    for (let i = 0; i < generated.length; i += 1) {
+      const item = generated[i];
+      const title = item.title || `Variant ${i + 1}`;
+
+      const imageBuffer = Buffer.isBuffer(item.buffer)
+        ? item.buffer
+        : Buffer.from(item.buffer);
 
       await updateJob(job.id, {
         progress_stage: `saving_variant_${i + 1}`,
-        progress_percent: 25 + Math.round((i / generatedVariants.length) * 70),
+        progress_percent: 20 + Math.round((i / generated.length) * 70),
       });
 
-      await uploadGeneratedImage({
-        path,
-        buffer: item.imageBuffer,
-      });
+      const generatedPath = `${job.user_id}/${job.id}/${String(i + 1).padStart(2, '0')}.png`;
+
+      await uploadGeneratedImage(generatedPath, imageBuffer);
 
       await insertVariant({
         job,
         idx: i,
-        prompt: item.title,
-        generatedPath: path,
+        prompt: title,
+        generatedPath,
+      });
+
+      console.log('VARIANT SAVED:', {
+        jobId: job.id,
+        idx: i,
+        title,
+        generatedPath,
       });
     }
 
@@ -153,15 +141,19 @@ export async function processAvatarJob(job) {
       progress_percent: 100,
     });
 
-    console.log('JOB DONE:', job.id);
+    console.log('PROCESS JOB DONE:', job.id);
   } catch (error) {
     console.error('PROCESS JOB ERROR:', error);
 
-    await updateJob(job.id, {
-      status: 'failed',
-      progress_stage: 'failed',
-      error_text: error?.message || String(error),
-    });
+    try {
+      await updateJob(job.id, {
+        status: 'failed',
+        progress_stage: 'failed',
+        error_text: error?.message || String(error),
+      });
+    } catch (updateError) {
+      console.error('FAILED TO MARK JOB FAILED:', updateError);
+    }
 
     throw error;
   }
