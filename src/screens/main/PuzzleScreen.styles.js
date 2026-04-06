@@ -238,6 +238,52 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
+
+  downloadButton: {
+    marginTop: 18,
+    width: '100%',
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(103,168,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  downloadButtonText: {
+    color: '#F7FAFF',
+    fontWeight: '700',
+  },
+
+  bottomVariantsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16,
+  },
+
+  variantBtn: {
+    minWidth: 44,
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  variantBtnActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+
+  variantBtnText: {
+    color: '#F7FAFF',
+    fontWeight: '700',
+  },
 });
 
 export default styles;

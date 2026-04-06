@@ -413,6 +413,65 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
   },
+
+    reminderRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  reminderChip: {
+    height: 28,
+    paddingLeft: 10,
+    paddingRight: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(103,168,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(103,168,255,0.22)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  reminderChipText: {
+    color: '#DCEBFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  reminderClearButton: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
+  },
+
+  addReminderButton: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  addReminderText: {
+    color: '#CDE0FF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  reminderModalHabitTitle: {
+    color: '#AFC3E6',
+    fontSize: 13,
+    marginBottom: 12,
+  },
 });
 
 export default styles;

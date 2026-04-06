@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Text, Pressable, Image, Platform, Linking, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Platform,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Svg, { Path, G } from 'react-native-svg';
+
 import { supabase } from '../../lib/supabase';
 import {
   getMyLatestAvatarJob,
@@ -10,49 +24,109 @@ import {
   getFlameStats,
   markVariantCompleted,
 } from '../../services/puzzle';
+import styles from './PuzzleScreen.styles';
+
+function getPublicUrl(bucket, path) {
+  if (!bucket || !path) return null;
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data?.publicUrl || null;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function scaleSvgPath(path, scaleX, scaleY) {
+  if (!path) return '';
+
+  return path.replace(
+    /([MLC])\s*(-?\d+(\.\d+)?)\s*(-?\d+(\.\d+)?)(?:,\s*(-?\d+(\.\d+)?)\s*(-?\d+(\.\d+)?))?(?:,\s*(-?\d+(\.\d+)?)\s*(-?\d+(\.\d+)?))?/g,
+    (match, cmd, x1, _a, y1, _b, x2, _c, y2, _d, x3, _e, y3) => {
+      if (cmd === 'M' || cmd === 'L') {
+        return `${cmd} ${(Number(x1) * scaleX).toFixed(2)} ${(Number(y1) * scaleY).toFixed(2)}`;
+      }
+
+      if (cmd === 'C') {
+        return `${cmd} ${(Number(x1) * scaleX).toFixed(2)} ${(Number(y1) * scaleY).toFixed(2)}, ${(Number(x2) * scaleX).toFixed(2)} ${(Number(y2) * scaleY).toFixed(2)}, ${(Number(x3) * scaleX).toFixed(2)} ${(Number(y3) * scaleY).toFixed(2)}`;
+      }
+
+      return match;
+    }
+  );
+}
+
+function VariantTitle({ variant, index, total }) {
+  return (
+    <View style={styles.navCenter}>
+      <Text style={styles.navTitle} numberOfLines={2}>
+        {variant?.prompt || `Variant ${index + 1}`}
+      </Text>
+      <Text style={styles.navMeta}>
+        Варіант {index + 1} з {total}
+      </Text>
+    </View>
+  );
+}
 
 export default function PuzzleScreen() {
   const queryClient = useQueryClient();
-  const [active, setActive] = useState(null);
+
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [boardWidth, setBoardWidth] = useState(340);
 
   const latestJobQuery = useQuery({
     queryKey: ['my_avatar_job'],
     queryFn: getMyLatestAvatarJob,
-    refetchInterval: 4000,
+    refetchInterval: 5000,
   });
 
   const variantsQuery = useQuery({
     queryKey: ['avatar_variants', latestJobQuery.data?.id],
     queryFn: () => getMyAvatarVariants(latestJobQuery.data?.id),
     enabled: !!latestJobQuery.data?.id,
-    refetchInterval: 4000,
+    refetchInterval: 5000,
   });
 
   const flameStatsQuery = useQuery({
     queryKey: ['flame_stats'],
     queryFn: getFlameStats,
+    refetchInterval: 5000,
   });
 
+  const variants = variantsQuery.data || [];
+  const activeVariant = variants[activeIndex] || null;
+
   const unlocksQuery = useQuery({
-    queryKey: ['puzzle_unlocks', active?.id],
-    queryFn: () => getUnlockedPieceIndexes(active?.id),
-    enabled: !!active?.id,
+    queryKey: ['avatar_puzzle_unlocks', activeVariant?.id],
+    queryFn: () => getUnlockedPieceIndexes(activeVariant?.id),
+    enabled: !!activeVariant?.id,
+    refetchInterval: 4000,
   });
 
   useEffect(() => {
-    if (!active && variantsQuery.data?.length) {
-      setActive(variantsQuery.data[0]);
+    if (!variants.length) {
+      setActiveIndex(0);
+      return;
     }
-  }, [variantsQuery.data, active]);
+    if (activeIndex > variants.length - 1) {
+      setActiveIndex(0);
+    }
+  }, [variants.length, activeIndex]);
 
   const unlockMutation = useMutation({
     mutationFn: unlockPuzzlePiece,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks'] });
+    onSuccess: async (result) => {
+      queryClient.invalidateQueries({ queryKey: ['avatar_puzzle_unlocks'] });
       queryClient.invalidateQueries({ queryKey: ['flame_stats'] });
+      queryClient.invalidateQueries({ queryKey: ['avatar_variants'] });
+
+      if (result?.completed) {
+        queryClient.invalidateQueries({ queryKey: ['my_profile'] });
+        Alert.alert('Готово', 'Пазл повністю відкрито');
+      }
     },
-    onError: (e) => {
-      Alert.alert('Помилка', e.message || 'Не вдалося відкрити частину пазла');
+    onError: (error) => {
+      Alert.alert('Помилка', error.message || 'Не вдалося відкрити частину пазла');
     },
   });
 
@@ -62,40 +136,52 @@ export default function PuzzleScreen() {
       queryClient.invalidateQueries({ queryKey: ['my_profile'] });
       queryClient.invalidateQueries({ queryKey: ['avatar_variants'] });
     },
-    onError: (e) => {
-      Alert.alert('Помилка', e.message || 'Не вдалося завершити пазл');
-    },
   });
 
-  const variants = variantsQuery.data || [];
   const unlockedIndexes = unlocksQuery.data || [];
-  const unlockedSet = new Set(unlockedIndexes);
+  const unlockedSet = useMemo(() => new Set(unlockedIndexes), [unlockedIndexes]);
+
   const flames = flameStatsQuery.data?.available || 0;
+  const earned = flameStatsQuery.data?.earned || 0;
+  const spent = flameStatsQuery.data?.spent || 0;
 
-  const totalPieces = active?.pieces_count || 16;
-  const grid = Math.sqrt(totalPieces);
-  const isComplete = unlockedSet.size >= totalPieces;
+  const manifest = activeVariant?.piece_manifest || [];
+  const totalPieces = activeVariant?.pieces_count || manifest.length || 30;
+  const openedPieces = unlockedSet.size;
+  const isComplete = openedPieces >= totalPieces;
 
-  const imageUrl = useMemo(() => {
-    if (!active?.generated_path) return null;
-    const { data } = supabase.storage
-      .from('avatar_generated')
-      .getPublicUrl(active.generated_path);
-    return data?.publicUrl || null;
-  }, [active]);
+  const boardAspectRatio = useMemo(() => {
+    const width = activeVariant?.image_width || 1;
+    const height = activeVariant?.image_height || 1;
+    return width / height;
+  }, [activeVariant?.image_width, activeVariant?.image_height]);
+
+  const boardHeight = useMemo(() => {
+    return Math.round(boardWidth / boardAspectRatio);
+  }, [boardWidth, boardAspectRatio]);
+
+  const generatedImageUrl = useMemo(() => {
+    if (!activeVariant?.generated_path) return null;
+    return getPublicUrl('avatar_generated', activeVariant.generated_path);
+  }, [activeVariant?.generated_path]);
+
+  const pieceBucket = activeVariant?.pieces_bucket || 'avatar-puzzle-pieces';
 
   useEffect(() => {
-    if (!active || !imageUrl || !isComplete || active.is_completed) return;
+    if (!activeVariant || !generatedImageUrl || !isComplete || activeVariant.is_completed) {
+      return;
+    }
 
     completeMutation.mutate({
-      variantId: active.id,
-      generatedPath: active.generated_path,
-      generatedUrl: imageUrl,
+      variantId: activeVariant.id,
+      generatedPath: activeVariant.generated_path,
+      generatedUrl: generatedImageUrl,
     });
-  }, [active, imageUrl, isComplete, completeMutation]);
+  }, [activeVariant, generatedImageUrl, isComplete, completeMutation]);
 
-  const handleUnlock = async (pieceIndex) => {
-    if (!active) return;
+  async function handleUnlock(pieceIndex) {
+    if (!activeVariant) return;
+    if (unlockMutation.isPending) return;
     if (unlockedSet.has(pieceIndex)) return;
 
     if (flames <= 0) {
@@ -104,242 +190,301 @@ export default function PuzzleScreen() {
     }
 
     await unlockMutation.mutateAsync({
-      variantId: active.id,
+      variantId: activeVariant.id,
       pieceIndex,
     });
-  };
+  }
 
-  const onDownload = async () => {
-    if (!isComplete || !imageUrl) return;
+  async function onDownload() {
+    if (!isComplete || !generatedImageUrl) {
+      Alert.alert('Поки не можна', 'Спочатку відкрий увесь пазл.');
+      return;
+    }
 
     try {
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
         const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = `avatar_${Date.now()}.png`;
+        link.href = generatedImageUrl;
+        link.download = `avatar_${activeVariant?.idx ?? 0}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         return;
       }
 
-      await Linking.openURL(imageUrl);
-    } catch (e) {
-      console.log('PUZZLE DOWNLOAD ERROR:', e);
+      await Linking.openURL(generatedImageUrl);
+    } catch (error) {
+      Alert.alert('Помилка', error.message || 'Не вдалося завантажити зображення');
     }
-  };
+  }
+
+  const goPrev = () => setActiveIndex((p) => Math.max(0, p - 1));
+  const goNext = () => setActiveIndex((p) => Math.min(variants.length - 1, p + 1));
 
   if (latestJobQuery.isLoading || variantsQuery.isLoading || flameStatsQuery.isLoading) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.title}>Puzzle</Text>
-        <Text style={styles.text}>Завантаження…</Text>
-      </View>
+      <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator size="large" color="#67A8FF" />
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!latestJobQuery.data) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.title}>Puzzle</Text>
-        <Text style={styles.text}>Ще немає задачі на AI-пазли.</Text>
-      </View>
+      <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.kicker}>PUZZLE</Text>
+          <Text style={styles.title}>Puzzle</Text>
+          <Text style={styles.emptyText}>
+            Ще немає задачі на AI-пазли. Завантаж аватар у Profile.
+          </Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!variants.length) {
+    const job = latestJobQuery.data;
     return (
-      <View style={styles.center}>
-        <Text style={styles.title}>Puzzle</Text>
-        <Text style={styles.text}>AI-зображення ще генеруються. Спробуй трохи пізніше.</Text>
-      </View>
+      <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.kicker}>PUZZLE</Text>
+          <Text style={styles.title}>Puzzle</Text>
+          <Text style={styles.emptyText}>AI-зображення ще генеруються.</Text>
+          <Text style={styles.emptyText}>
+            Статус: {job.status} · {job.progress_percent ?? 0}%
+          </Text>
+          {!!job.progress_stage && (
+            <Text style={styles.emptyText}>Етап: {job.progress_stage}</Text>
+          )}
+        </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.topRow}>
-        <View>
-          <Text style={styles.title}>Puzzle</Text>
-          <Text style={styles.text}>
-            Вогники: {flames} · Відкрито: {unlockedSet.size}/{totalPieces}
-          </Text>
-        </View>
+    <LinearGradient colors={['#0B1020', '#0F172A', '#111827']} style={styles.gradient}>
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <Text style={styles.kicker}>PUZZLE</Text>
 
-        <Pressable
-          onPress={onDownload}
-          disabled={!isComplete}
-          style={[
-            styles.downloadBtn,
-            !isComplete && styles.downloadBtnDisabled,
-          ]}
-        >
-          <Text style={styles.downloadBtnText}>Download</Text>
-        </Pressable>
-      </View>
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              <Text style={styles.title}>Puzzle</Text>
+              <Text style={styles.subtitle}>
+                Відкривай частини за вогники. Після повного відкриття можна завантажити AI-аватар.
+              </Text>
+            </View>
 
-      {!!imageUrl && (
-        <View style={styles.boardWrap}>
-          <PuzzleBoard
-            imageUrl={imageUrl}
-            grid={grid}
-            unlockedSet={unlockedSet}
-            onUnlock={handleUnlock}
-          />
-        </View>
-      )}
+            <View style={styles.flameBadge}>
+              <Ionicons name="flame" size={16} color="#FFB347" />
+              <Text style={styles.flameBadgeText}>{flames}</Text>
+            </View>
+          </View>
 
-      <View style={styles.variantsRow}>
-        {variants.map((item) => {
-          const selected = item.id === active?.id;
-
-          return (
+          <View style={styles.navRow}>
             <Pressable
-              key={item.id}
-              onPress={() => setActive(item)}
-              style={[styles.variantBtn, selected && styles.variantBtnActive]}
+              onPress={goPrev}
+              disabled={activeIndex <= 0}
+              style={[styles.navButton, activeIndex <= 0 && styles.navButtonDisabled]}
             >
-              <Text style={styles.variantBtnText}>{item.idx + 1}</Text>
+              <Ionicons name="chevron-back" size={18} color="#DCEBFF" />
             </Pressable>
-          );
-        })}
+
+            <VariantTitle variant={activeVariant} index={activeIndex} total={variants.length} />
+
+            <Pressable
+              onPress={goNext}
+              disabled={activeIndex >= variants.length - 1}
+              style={[styles.navButton, activeIndex >= variants.length - 1 && styles.navButtonDisabled]}
+            >
+              <Ionicons name="chevron-forward" size={18} color="#DCEBFF" />
+            </Pressable>
+          </View>
+
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Відкрито</Text>
+              <Text style={styles.statValue}>{openedPieces}/{totalPieces}</Text>
+            </View>
+
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Зароблено</Text>
+              <Text style={styles.statValue}>{earned}</Text>
+            </View>
+
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Витрачено</Text>
+              <Text style={styles.statValue}>{spent}</Text>
+            </View>
+          </View>
+
+          <View
+            style={styles.boardOuter}
+            onLayout={(e) => {
+              const width = e.nativeEvent.layout.width;
+              const nextWidth = clamp(width - 20, 280, 620);
+              if (Math.abs(nextWidth - boardWidth) > 2) {
+                setBoardWidth(nextWidth);
+              }
+            }}
+          >
+            <View style={styles.boardFrame}>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.02)']}
+                style={styles.boardGradient}
+              >
+                <View
+                  style={[
+                    styles.board,
+                    {
+                      width: boardWidth,
+                      height: boardHeight,
+                    },
+                  ]}
+                >
+                  {generatedImageUrl ? (
+                    <Image
+                      source={{ uri: generatedImageUrl }}
+                      style={{
+                        position: 'absolute',
+                        width: boardWidth,
+                        height: boardHeight,
+                        opacity: 0.12,
+                      }}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+
+                  {unlocksQuery.isLoading ? (
+                    <View style={styles.unlocksLoader}>
+                      <ActivityIndicator size="large" color="#67A8FF" />
+                    </View>
+                  ) : (
+                    manifest.map((piece) => {
+                      const unlocked = unlockedSet.has(piece.index);
+                      const pieceUrl = getPublicUrl(pieceBucket, piece.file);
+
+                      const scaleX = boardWidth / activeVariant.image_width;
+                      const scaleY = boardHeight / activeVariant.image_height;
+
+                      const pieceLeft = (piece.slotX - piece.offsetX) * scaleX;
+                      const pieceTop = (piece.slotY - piece.offsetY) * scaleY;
+
+                      const pieceWidth = piece.pieceWidth * scaleX;
+                      const pieceHeight = piece.pieceHeight * scaleY;
+
+                      const scaledPath = scaleSvgPath(piece.path, scaleX, scaleY);
+
+                      const slotLeft = piece.slotX * scaleX;
+                      const slotTop = piece.slotY * scaleY;
+                      const slotWidth = piece.slotWidth * scaleX;
+                      const slotHeight = piece.slotHeight * scaleY;
+
+                      return (
+                        <View key={piece.index}>
+                          {unlocked && pieceUrl ? (
+                            <Image
+                              source={{ uri: pieceUrl }}
+                              resizeMode="contain"
+                              style={[
+                                styles.pieceSvg,
+                                Platform.OS !== 'web' && styles.pieceShadowNative,
+                                {
+                                  left: pieceLeft,
+                                  top: pieceTop,
+                                  width: pieceWidth,
+                                  height: pieceHeight,
+                                },
+                              ]}
+                            />
+                          ) : (
+                            <Pressable
+                              onPress={() => handleUnlock(piece.index)}
+                              style={[
+                                styles.piecePressable,
+                                {
+                                  left: pieceLeft,
+                                  top: pieceTop,
+                                  width: pieceWidth,
+                                  height: pieceHeight,
+                                },
+                              ]}
+                            >
+                              <Svg
+                                width={pieceWidth}
+                                height={pieceHeight}
+                                viewBox={`0 0 ${pieceWidth} ${pieceHeight}`}
+                                style={styles.pieceSvg}
+                              >
+                                <G>
+                                  <Path
+                                    d={scaledPath}
+                                    fill="rgba(8,18,40,0.90)"
+                                    stroke="rgba(180,210,255,0.16)"
+                                    strokeWidth={1.5}
+                                  />
+                                </G>
+                              </Svg>
+
+                              <View
+                                style={[
+                                  styles.lockBadge,
+                                  {
+                                    left: slotWidth / 2 - 23,
+                                    top: slotHeight / 2 - 20,
+                                  },
+                                ]}
+                                pointerEvents="none"
+                              >
+                                <View style={styles.badgeInner}>
+                                  <Ionicons name="lock-closed-outline" size={14} color="#DCEBFF" />
+                                  <Text style={styles.pieceLockedText}>1 🔥</Text>
+                                </View>
+                              </View>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </LinearGradient>
+            </View>
+          </View>
+
+          <Pressable
+            onPress={onDownload}
+            disabled={!isComplete}
+            style={[
+              styles.downloadButton,
+              !isComplete && styles.navButtonDisabled,
+            ]}
+          >
+            <Text style={styles.downloadButtonText}>Завантажити готовий аватар</Text>
+          </Pressable>
+
+          <View style={styles.bottomVariantsRow}>
+            {variants.map((variant, index) => {
+              const selected = index === activeIndex;
+              return (
+                <Pressable
+                  key={variant.id}
+                  onPress={() => setActiveIndex(index)}
+                  style={[
+                    styles.variantBtn,
+                    selected && styles.variantBtnActive,
+                  ]}
+                >
+                  <Text style={styles.variantBtnText}>{index + 1}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
-
-function PuzzleBoard({ imageUrl, grid, unlockedSet, onUnlock }) {
-  const boardSize = 320;
-  const tile = boardSize / grid;
-  const pieces = [];
-
-  for (let r = 0; r < grid; r++) {
-    for (let c = 0; c < grid; c++) {
-      const idx = r * grid + c;
-      const unlocked = unlockedSet.has(idx);
-
-      pieces.push(
-        <Pressable
-          key={idx}
-          onPress={() => onUnlock(idx)}
-          style={{
-            position: 'absolute',
-            left: c * tile,
-            top: r * tile,
-            width: tile,
-            height: tile,
-            borderWidth: 1,
-            borderColor: '#1E335A',
-            overflow: 'hidden',
-            backgroundColor: '#08152E',
-            opacity: unlocked ? 1 : 0.15,
-          }}
-        >
-          <Image
-            source={{ uri: imageUrl }}
-            style={{
-              width: boardSize,
-              height: boardSize,
-              transform: [
-                { translateX: -c * tile },
-                { translateY: -r * tile },
-              ],
-            }}
-          />
-
-          {!unlocked ? (
-            <View
-              style={{
-                position: 'absolute',
-                inset: 0,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'rgba(2,11,34,0.78)',
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '700' }}>1 🔥</Text>
-            </View>
-          ) : null}
-        </Pressable>
-      );
-    }
-  }
-
-  return <View style={{ width: boardSize, height: boardSize }}>{pieces}</View>;
-}
-
-const styles = {
-  screen: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#020B22',
-  },
-  center: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-    backgroundColor: '#020B22',
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    gap: 12,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  text: {
-    color: '#AFC3E6',
-    marginTop: 8,
-    fontSize: 15,
-  },
-  boardWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  downloadBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#335EA8',
-    backgroundColor: '#12305C',
-  },
-  downloadBtnDisabled: {
-    opacity: 0.45,
-  },
-  downloadBtnText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  variantsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-  },
-  variantBtn: {
-    minWidth: 42,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#0D1E3D',
-    borderWidth: 1,
-    borderColor: '#223E73',
-  },
-  variantBtnActive: {
-    backgroundColor: '#2F66E0',
-    borderColor: '#2F66E0',
-  },
-  variantBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-};

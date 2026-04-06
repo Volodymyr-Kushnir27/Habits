@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,28 +10,31 @@ import {
   Image,
   ScrollView,
   Platform,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 
-import { getMyProfile, updateMyProfile, signOut } from '../../services/auth';
-import { uploadAvatar } from '../../services/storage';
-import { enqueueAvatarGenerationJob, getMyLatestAvatarJob } from '../../services/puzzle';
+import { getMyProfile, updateMyProfile, signOut } from "../../services/auth";
+import { uploadAvatar } from "../../services/storage";
+import {
+  enqueueAvatarGenerationJob,
+  getMyLatestAvatarJob,
+} from "../../services/puzzle";
 
 export default function ProfileScreen() {
   const queryClient = useQueryClient();
-  const [draftName, setDraftName] = useState('');
+  const [draftName, setDraftName] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const profileQuery = useQuery({
-    queryKey: ['my_profile'],
+    queryKey: ["my_profile"],
     queryFn: getMyProfile,
   });
 
   const latestJobQuery = useQuery({
-    queryKey: ['my_avatar_job'],
+    queryKey: ["my_avatar_job"],
     queryFn: getMyLatestAvatarJob,
     refetchInterval: 15000,
   });
@@ -39,7 +42,7 @@ export default function ProfileScreen() {
   const saveMutation = useMutation({
     mutationFn: updateMyProfile,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my_profile'] });
+      queryClient.invalidateQueries({ queryKey: ["my_profile"] });
     },
   });
 
@@ -50,19 +53,20 @@ export default function ProfileScreen() {
   }, [profileQuery.data?.name]);
 
   const profile = profileQuery.data || null;
-  const avatarUrl = profile?.completed_avatar_url || profile?.avatar_url ||null;
+  const avatarUrl =
+    profile?.completed_avatar_url || profile?.avatar_url || null;
 
   const latestJob = latestJobQuery.data || null;
 
   const statusText = useMemo(() => {
-    if (!latestJob) return 'AI-пазли ще не запускались';
-    if (latestJob.status === 'pending') return 'AI-пазли в черзі';
-    if (latestJob.status === 'processing') {
+    if (!latestJob) return "AI-пазли ще не запускались";
+    if (latestJob.status === "pending") return "AI-пазли в черзі";
+    if (latestJob.status === "processing") {
       return `Генерація пазлів: ${latestJob.progress_percent ?? 0}%`;
     }
-    if (latestJob.status === 'done') return 'Остання генерація завершена';
-    if (latestJob.status === 'failed') {
-      return `Помилка генерації: ${latestJob.error_text || 'невідома помилка'}`;
+    if (latestJob.status === "done") return "Остання генерація завершена";
+    if (latestJob.status === "failed") {
+      return `Помилка генерації: ${latestJob.error_text || "невідома помилка"}`;
     }
     return latestJob.status;
   }, [latestJob]);
@@ -73,37 +77,36 @@ export default function ProfileScreen() {
         name: draftName,
       });
 
-      Alert.alert('Готово', 'Профіль оновлено');
+      Alert.alert("Готово", "Профіль оновлено");
     } catch (error) {
-      console.error('SAVE PROFILE ERROR:', error);
-      Alert.alert('Помилка', error.message || 'Не вдалося оновити профіль');
+      console.error("SAVE PROFILE ERROR:", error);
+      Alert.alert("Помилка", error.message || "Не вдалося оновити профіль");
     }
   }
 
   async function handlePickAvatar() {
     try {
       if (!profile?.id) {
-        Alert.alert('Помилка', 'Профіль ще не завантажився');
+        Alert.alert("Помилка", "Профіль ще не завантажився");
         return;
       }
 
-      if (Platform.OS !== 'web') {
+      if (Platform.OS !== "web") {
         const permissionResult =
           await ImagePicker.requestMediaLibraryPermissionsAsync();
 
         if (!permissionResult.granted) {
-          Alert.alert('Немає доступу', 'Дозволь доступ до галереї');
+          Alert.alert("Немає доступу", "Дозволь доступ до галереї");
           return;
         }
-        console.log('PICKED ASSET:', asset);
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.9,
-        base64: Platform.OS !== 'web',
+        base64: Platform.OS !== "web",
       });
 
       if (result.canceled) return;
@@ -120,23 +123,23 @@ export default function ProfileScreen() {
         avatar_url: uploadResult.publicUrl,
         avatar_path: uploadResult.storagePath,
       });
-      console.log('START ENQUEUE WITH PATH:', uploadResult.storagePath);
+      console.log("START ENQUEUE WITH PATH:", uploadResult.storagePath);
       await enqueueAvatarGenerationJob({
         avatarPath: uploadResult.storagePath,
-      }) ;
-        console.log('UPLOAD RESULT:', uploadResult);
-      queryClient.invalidateQueries({ queryKey: ['my_avatar_job'] });
-      queryClient.invalidateQueries({ queryKey: ['my_profile'] });
-      queryClient.invalidateQueries({ queryKey: ['avatar_variants'] });
-      queryClient.invalidateQueries({ queryKey: ['puzzle_unlocks'] });
+      });
+      console.log("UPLOAD RESULT:", uploadResult);
+      queryClient.invalidateQueries({ queryKey: ["my_avatar_job"] });
+      queryClient.invalidateQueries({ queryKey: ["my_profile"] });
+      queryClient.invalidateQueries({ queryKey: ["avatar_variants"] });
+      queryClient.invalidateQueries({ queryKey: ["avatar_puzzle_unlocks"] });
 
       Alert.alert(
-        'Готово',
-        'Аватар завантажено. Створено задачу на 10 AI-варіантів для пазлів.'
+        "Готово",
+        "Аватар завантажено. Створено задачу на 10 AI-варіантів для пазлів.",
       );
     } catch (error) {
-      console.error('AVATAR PICK ERROR:', error);
-      Alert.alert('Помилка', error.message || 'Не вдалося завантажити аватар');
+      console.error("AVATAR PICK ERROR:", error);
+      Alert.alert("Помилка", error.message || "Не вдалося завантажити аватар");
     } finally {
       setUploading(false);
     }
@@ -146,14 +149,17 @@ export default function ProfileScreen() {
     try {
       await signOut();
     } catch (error) {
-      console.error('SIGN OUT ERROR:', error);
-      Alert.alert('Помилка', error.message || 'Не вдалося вийти');
+      console.error("SIGN OUT ERROR:", error);
+      Alert.alert("Помилка", error.message || "Не вдалося вийти");
     }
   }
 
   if (profileQuery.isLoading) {
     return (
-      <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+      <LinearGradient
+        colors={["#081224", "#0F172A", "#111827"]}
+        style={styles.gradient}
+      >
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#67A8FF" />
         </View>
@@ -163,7 +169,10 @@ export default function ProfileScreen() {
 
   if (profileQuery.isError) {
     return (
-      <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+      <LinearGradient
+        colors={["#081224", "#0F172A", "#111827"]}
+        style={styles.gradient}
+      >
         <View style={styles.centered}>
           <Text style={styles.errorText}>Не вдалося завантажити профіль</Text>
         </View>
@@ -172,7 +181,10 @@ export default function ProfileScreen() {
   }
 
   return (
-    <LinearGradient colors={['#081224', '#0F172A', '#111827']} style={styles.gradient}>
+    <LinearGradient
+      colors={["#081224", "#0F172A", "#111827"]}
+      style={styles.gradient}
+    >
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.kicker}>PROFILE</Text>
         <Text style={styles.title}>Профіль</Text>
@@ -243,8 +255,8 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>AI пазли</Text>
           <Text style={styles.infoText}>
-            Після зміни аватара створюється job. Далі worker генерує 10 AI-зображень,
-            ріже їх на пазли та додає у вкладку Puzzle.
+            Після зміни аватара створюється job. Далі worker генерує 10
+            AI-зображень, ріже їх на пазли та додає у вкладку Puzzle.
           </Text>
 
           {latestJob ? (
@@ -254,7 +266,9 @@ export default function ProfileScreen() {
                 Прогрес: {latestJob.progress_percent ?? 0}%
               </Text>
               {!!latestJob.progress_stage && (
-                <Text style={styles.jobLine}>Етап: {latestJob.progress_stage}</Text>
+                <Text style={styles.jobLine}>
+                  Етап: {latestJob.progress_stage}
+                </Text>
               )}
               {!!latestJob.error_text && (
                 <Text style={styles.jobError}>{latestJob.error_text}</Text>
@@ -283,31 +297,31 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   content: { padding: 20, paddingBottom: 40, gap: 16 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   kicker: {
     marginTop: 10,
-    color: '#67A8FF',
+    color: "#67A8FF",
     fontSize: 12,
     letterSpacing: 2,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   title: {
-    color: '#FFF',
+    color: "#FFF",
     fontSize: 34,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: 8,
   },
   card: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 20,
     padding: 16,
     gap: 14,
   },
   avatarWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 6,
   },
   avatar: {
@@ -315,111 +329,111 @@ const styles = StyleSheet.create({
     height: 116,
     borderRadius: 58,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: "rgba(255,255,255,0.12)",
   },
   avatarPlaceholder: {
     width: 116,
     height: 116,
     borderRadius: 58,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   label: {
-    color: '#E5E7EB',
+    color: "#E5E7EB",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 14,
-    color: '#FFF',
+    color: "#FFF",
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: "rgba(255,255,255,0.08)",
   },
   primaryButton: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: '#2563EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: 8,
   },
   primaryButtonText: {
-    color: '#FFF',
+    color: "#FFF",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   secondaryButton: {
     height: 46,
     borderRadius: 14,
-    backgroundColor: '#374151',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: "#374151",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: 8,
   },
   secondaryButtonText: {
-    color: '#FFF',
+    color: "#FFF",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   logoutButton: {
     height: 48,
     borderRadius: 14,
-    backgroundColor: '#B91C1C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: "#B91C1C",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: 8,
     marginTop: 8,
   },
   logoutButtonText: {
-    color: '#FFF',
+    color: "#FFF",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   pressed: { opacity: 0.86 },
   disabled: { opacity: 0.6 },
   sectionTitle: {
-    color: '#FFF',
+    color: "#FFF",
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   infoText: {
-    color: '#CBD5E1',
+    color: "#CBD5E1",
     fontSize: 14,
     lineHeight: 20,
   },
   mutedText: {
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     fontSize: 14,
   },
   statusText: {
-    color: '#93C5FD',
+    color: "#93C5FD",
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
   jobBox: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: "rgba(255,255,255,0.05)",
     borderRadius: 14,
     padding: 12,
     gap: 6,
   },
   jobLine: {
-    color: '#E5E7EB',
+    color: "#E5E7EB",
     fontSize: 14,
   },
   jobError: {
-    color: '#FCA5A5',
+    color: "#FCA5A5",
     fontSize: 13,
   },
   errorText: {
-    color: '#FCA5A5',
+    color: "#FCA5A5",
     fontSize: 16,
   },
 });

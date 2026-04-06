@@ -1,13 +1,13 @@
 import { supabase } from '../lib/supabase';
+import { getCurrentSession } from './auth';
 
 async function getCurrentUser() {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const session = await getCurrentSession();
+  const user = session?.user;
 
-  if (error) throw error;
-  if (!user) throw new Error('User not found');
+  if (!user) {
+    throw new Error('User not authenticated');
+  }
 
   return user;
 }
@@ -25,22 +25,11 @@ async function getEarnedFlamesCount(userId) {
 
 async function getSpentFlamesCount(userId) {
   const { count, error } = await supabase
-    .from('puzzle_unlocks')
+    .from('avatar_puzzle_unlocks')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
 
-  if (error) {
-    if (
-      error.message?.includes('relation') ||
-      error.message?.includes('does not exist') ||
-      error.message?.includes('puzzle_unlocks')
-    ) {
-      return 0;
-    }
-
-    throw error;
-  }
-
+  if (error) throw error;
   return count || 0;
 }
 
@@ -79,6 +68,8 @@ export async function createHabit({
       icon,
       is_archived: false,
       archived_at: null,
+      reminder_time: null,
+      reminder_notification_id: null,
     })
     .select()
     .single();
@@ -88,10 +79,16 @@ export async function createHabit({
 }
 
 export async function updateHabitTitle({ habitId, title }) {
+  const user = await getCurrentUser();
+
   const { data, error } = await supabase
     .from('habits')
-    .update({ title: title.trim() })
+    .update({
+      title: title.trim(),
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', habitId)
+    .eq('user_id', user.id)
     .select()
     .single();
 
@@ -100,10 +97,16 @@ export async function updateHabitTitle({ habitId, title }) {
 }
 
 export async function updateHabitDescription({ habitId, description }) {
+  const user = await getCurrentUser();
+
   const { data, error } = await supabase
     .from('habits')
-    .update({ description: description.trim() })
+    .update({
+      description: description.trim(),
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', habitId)
+    .eq('user_id', user.id)
     .select()
     .single();
 
@@ -112,10 +115,58 @@ export async function updateHabitDescription({ habitId, description }) {
 }
 
 export async function updateHabitColor({ habitId, color }) {
+  const user = await getCurrentUser();
+
   const { data, error } = await supabase
     .from('habits')
-    .update({ color })
+    .update({
+      color,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', habitId)
+    .eq('user_id', user.id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateHabitReminder({
+  habitId,
+  reminderTime,
+  reminderNotificationId,
+}) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await supabase
+    .from('habits')
+    .update({
+      reminder_time: reminderTime,
+      reminder_notification_id: reminderNotificationId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', habitId)
+    .eq('user_id', user.id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function clearHabitReminder({ habitId }) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await supabase
+    .from('habits')
+    .update({
+      reminder_time: null,
+      reminder_notification_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', habitId)
+    .eq('user_id', user.id)
     .select()
     .single();
 
@@ -124,6 +175,7 @@ export async function updateHabitColor({ habitId, color }) {
 }
 
 export async function deleteHabit(habitId) {
+  const user = await getCurrentUser();
   const archivedAt = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -131,8 +183,10 @@ export async function deleteHabit(habitId) {
     .update({
       is_archived: true,
       archived_at: archivedAt,
+      updated_at: archivedAt,
     })
     .eq('id', habitId)
+    .eq('user_id', user.id)
     .select()
     .single();
 
@@ -141,13 +195,17 @@ export async function deleteHabit(habitId) {
 }
 
 export async function restoreHabit(habitId) {
+  const user = await getCurrentUser();
+
   const { data, error } = await supabase
     .from('habits')
     .update({
       is_archived: false,
       archived_at: null,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', habitId)
+    .eq('user_id', user.id)
     .select()
     .single();
 
@@ -163,6 +221,7 @@ export async function toggleHabitDay({ habitId, doneDate, isDone }) {
     .select('*')
     .eq('habit_id', habitId)
     .eq('done_date', doneDate)
+    .eq('user_id', user.id)
     .maybeSingle();
 
   if (selectError) throw selectError;
@@ -197,7 +256,8 @@ export async function toggleHabitDay({ habitId, doneDate, isDone }) {
   const { error } = await supabase
     .from('habit_logs')
     .update({ is_done: isDone })
-    .eq('id', existing.id);
+    .eq('id', existing.id)
+    .eq('user_id', user.id);
 
   if (error) throw error;
   return true;
