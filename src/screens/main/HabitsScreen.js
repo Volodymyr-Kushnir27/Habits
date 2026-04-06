@@ -14,7 +14,6 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-// import { Platform } from 'react-native';
 import {
   format,
   startOfMonth,
@@ -41,6 +40,7 @@ import {
   replaceHabitReminder,
   cancelHabitReminder,
   isWebPlatform,
+  requestNotificationPermission,
 } from "../../services/notifications";
 
 import MadeInBadge from "../../components/MadeInBadge";
@@ -124,12 +124,13 @@ function toTimeString(date) {
 
 function parseTimeToDate(time) {
   const date = new Date();
+
   if (!time) {
     date.setHours(20, 0, 0, 0);
     return date;
   }
 
-  const [hh, mm] = time.split(":").map(Number);
+  const [hh, mm] = String(time).split(":").map(Number);
   date.setHours(hh || 0, mm || 0, 0, 0);
   return date;
 }
@@ -147,7 +148,7 @@ function ReminderChip({ time, onPress, onClear }) {
       <Ionicons name="time-outline" size={14} color="#CDE0FF" />
       <Text style={styles.reminderChipText}>{time}</Text>
 
-      {(hovered || Platform.OS !== 'web') && !!time? (
+      {(hovered || Platform.OS !== "web") && !!time ? (
         <Pressable
           onPress={(e) => {
             e?.stopPropagation?.();
@@ -186,7 +187,7 @@ export default function HabitsScreen() {
 
   const monthDays = useMemo(
     () => eachDayOfInterval({ start: monthStart, end: monthEnd }),
-    [monthStart, monthEnd],
+    [monthStart, monthEnd]
   );
 
   const fromDate = format(monthStart, "yyyy-MM-dd");
@@ -336,7 +337,7 @@ export default function HabitsScreen() {
   function handleDeleteHabit(habit) {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const ok = window.confirm(
-        `Delete "${habit.title}" only from ${format(currentMonthDate, "MMMM yyyy")} and next months?`,
+        `Delete "${habit.title}" only from ${format(currentMonthDate, "MMMM yyyy")} and next months?`
       );
 
       if (ok) {
@@ -355,7 +356,7 @@ export default function HabitsScreen() {
           style: "destructive",
           onPress: () => deleteHabitMutation.mutate(habit.id),
         },
-      ],
+      ]
     );
   }
 
@@ -376,16 +377,30 @@ export default function HabitsScreen() {
         ? webReminderInput
         : toTimeString(reminderDate);
 
+      const normalizedTime = rawTime.length === 4 ? `0${rawTime}` : rawTime;
+
       console.log("REMINDER SAVE START:", {
         habitId: reminderHabit.id,
         title: reminderHabit.title,
-        rawTime,
+        rawTime: normalizedTime,
       });
+
+      if (!isWebPlatform()) {
+        const granted = await requestNotificationPermission();
+
+        if (!granted) {
+          Alert.alert(
+            "Немає доступу",
+            "Дозволь повідомлення для цього додатка в iPhone"
+          );
+          return;
+        }
+      }
 
       const notificationId = await replaceHabitReminder({
         oldNotificationId: reminderHabit.reminder_notification_id,
         title: reminderHabit.title,
-        time: rawTime,
+        time: normalizedTime,
         body: `Час виконати звичку: ${reminderHabit.title}`,
       });
 
@@ -393,7 +408,7 @@ export default function HabitsScreen() {
 
       await reminderMutation.mutateAsync({
         habitId: reminderHabit.id,
-        reminderTime: rawTime.length === 4 ? `0${rawTime}` : rawTime,
+        reminderTime: normalizedTime,
         reminderNotificationId: notificationId,
       });
 
@@ -404,11 +419,7 @@ export default function HabitsScreen() {
     } catch (e) {
       console.error("REMINDER SAVE ERROR:", e);
 
-      if (typeof window !== "undefined" && window.alert) {
-        window.alert(e.message || "Не вдалося зберегти нагадування");
-      } else {
-        Alert.alert("Помилка", e.message || "Не вдалося зберегти нагадування");
-      }
+      Alert.alert("Помилка", e.message || "Не вдалося зберегти нагадування");
     }
   }
 
@@ -595,7 +606,7 @@ export default function HabitsScreen() {
                   habits.map((habit) => {
                     const longestStreak = calculateLongestStreakInMonth(
                       habit.id,
-                      logs,
+                      logs
                     );
 
                     return (
@@ -638,6 +649,7 @@ export default function HabitsScreen() {
                                 <Text style={styles.habitHint}>
                                   Tap title to rename
                                 </Text>
+
                                 <Text style={styles.streakText}>
                                   🔥 {longestStreak} day
                                   {longestStreak === 1 ? "" : "s"}

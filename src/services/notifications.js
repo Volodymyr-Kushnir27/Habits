@@ -11,8 +11,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export function isWebPlatform() {
+  return Platform.OS === 'web';
+}
+
 export async function requestNotificationPermission() {
-  if (Platform.OS === 'web') return true;
+  if (isWebPlatform()) return true;
 
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
@@ -26,6 +30,18 @@ export async function requestNotificationPermission() {
   });
 
   return !!requested.granted;
+}
+
+async function ensureAndroidNotificationChannel() {
+  if (Platform.OS !== 'android') return;
+
+  await Notifications.setNotificationChannelAsync('habit-reminders', {
+    name: 'Habit reminders',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#2563EB',
+    sound: 'default',
+  });
 }
 
 function parseTimeString(time) {
@@ -46,7 +62,7 @@ function parseTimeString(time) {
 }
 
 export async function scheduleHabitReminder({ title, time, body }) {
-  if (Platform.OS === 'web') {
+  if (isWebPlatform()) {
     return `web-${title}-${time}`;
   }
 
@@ -55,25 +71,58 @@ export async function scheduleHabitReminder({ title, time, body }) {
     throw new Error('Немає дозволу на повідомлення');
   }
 
+  await ensureAndroidNotificationChannel();
+
   const { hour, minute } = parseTimeString(time);
 
-  return Notifications.scheduleNotificationAsync({
+  const trigger =
+    Platform.OS === 'android'
+      ? {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+          channelId: 'habit-reminders',
+        }
+      : {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+        };
+
+  const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: 'Нагадування про звичку',
-      body: body || `Час виконати: ${title}`,
+      body: body || `Час виконати звичку: ${title}`,
       sound: true,
     },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour,
-      minute,
-    },
+    trigger,
   });
+
+  return notificationId;
 }
 
 export async function cancelHabitReminder(notificationId) {
   if (!notificationId) return;
-  if (Platform.OS === 'web') return;
+  if (isWebPlatform()) return;
 
   await Notifications.cancelScheduledNotificationAsync(notificationId);
+}
+
+export async function replaceHabitReminder({
+  oldNotificationId,
+  title,
+  time,
+  body,
+}) {
+  if (oldNotificationId) {
+    await cancelHabitReminder(oldNotificationId);
+  }
+
+  const newNotificationId = await scheduleHabitReminder({
+    title,
+    time,
+    body,
+  });
+
+  return newNotificationId;
 }
