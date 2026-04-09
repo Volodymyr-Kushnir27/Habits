@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -18,10 +18,20 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { getMyProfile, updateMyProfile, signOut } from "../../services/auth";
 import { uploadAvatar } from "../../services/storage";
-import {
-  enqueueAvatarGenerationJob,
-  getMyLatestAvatarJob,
-} from "../../services/puzzle";
+import { createPremiumAvatarJob } from '../../services/premiumGeneration';
+
+async function handleCreatePremium() {
+  try {
+    const result = await createPremiumAvatarJob({
+      sourceImagePath: 'USER_ID/premium-source/source_171234.jpg',
+      prompt: 'futuristic portrait, blue neon, cinematic light',
+    });
+
+    console.log('PREMIUM JOB CREATED:', result);
+  } catch (error) {
+    console.error('PREMIUM JOB ERROR:', error);
+  }
+}
 
 export default function ProfileScreen() {
   const queryClient = useQueryClient();
@@ -31,12 +41,6 @@ export default function ProfileScreen() {
   const profileQuery = useQuery({
     queryKey: ["my_profile"],
     queryFn: getMyProfile,
-  });
-
-  const latestJobQuery = useQuery({
-    queryKey: ["my_avatar_job"],
-    queryFn: getMyLatestAvatarJob,
-    refetchInterval: 15000,
   });
 
   const saveMutation = useMutation({
@@ -53,23 +57,7 @@ export default function ProfileScreen() {
   }, [profileQuery.data?.name]);
 
   const profile = profileQuery.data || null;
-  const avatarUrl =
-    profile?.completed_avatar_url || profile?.avatar_url || null;
-
-  const latestJob = latestJobQuery.data || null;
-
-  const statusText = useMemo(() => {
-    if (!latestJob) return "AI-пазли ще не запускались";
-    if (latestJob.status === "pending") return "AI-пазли в черзі";
-    if (latestJob.status === "processing") {
-      return `Генерація пазлів: ${latestJob.progress_percent ?? 0}%`;
-    }
-    if (latestJob.status === "done") return "Остання генерація завершена";
-    if (latestJob.status === "failed") {
-      return `Помилка генерації: ${latestJob.error_text || "невідома помилка"}`;
-    }
-    return latestJob.status;
-  }, [latestJob]);
+  const avatarUrl = profile?.avatar_url || null;
 
   async function handleSaveProfile() {
     try {
@@ -123,20 +111,10 @@ export default function ProfileScreen() {
         avatar_url: uploadResult.publicUrl,
         avatar_path: uploadResult.storagePath,
       });
-      console.log("START ENQUEUE WITH PATH:", uploadResult.storagePath);
-      await enqueueAvatarGenerationJob({
-        avatarPath: uploadResult.storagePath,
-      });
-      console.log("UPLOAD RESULT:", uploadResult);
-      queryClient.invalidateQueries({ queryKey: ["my_avatar_job"] });
-      queryClient.invalidateQueries({ queryKey: ["my_profile"] });
-      queryClient.invalidateQueries({ queryKey: ["avatar_variants"] });
-      queryClient.invalidateQueries({ queryKey: ["avatar_puzzle_unlocks"] });
 
-      Alert.alert(
-        "Готово",
-        "Аватар завантажено. Створено задачу на 10 AI-варіантів для пазлів.",
-      );
+      queryClient.invalidateQueries({ queryKey: ["my_profile"] });
+
+      Alert.alert("Готово", "Аватар оновлено");
     } catch (error) {
       console.error("AVATAR PICK ERROR:", error);
       Alert.alert("Помилка", error.message || "Не вдалося завантажити аватар");
@@ -218,8 +196,6 @@ export default function ProfileScreen() {
               </>
             )}
           </Pressable>
-
-          <Text style={styles.statusText}>{statusText}</Text>
         </View>
 
         <View style={styles.card}>
@@ -253,30 +229,25 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>AI пазли</Text>
+          <Text style={styles.sectionTitle}>Premium</Text>
           <Text style={styles.infoText}>
-            Після зміни аватара створюється job. Далі worker генерує 10
-            AI-зображень, ріже їх на пазли та додає у вкладку Puzzle.
+            На цьому етапі Premium ще без реальної покупки.
+          </Text>
+          <Text style={styles.infoText}>
+            У вкладці Puzzle вже є окрема premium-заглушка з paywall.
           </Text>
 
-          {latestJob ? (
-            <View style={styles.jobBox}>
-              <Text style={styles.jobLine}>Статус: {latestJob.status}</Text>
-              <Text style={styles.jobLine}>
-                Прогрес: {latestJob.progress_percent ?? 0}%
-              </Text>
-              {!!latestJob.progress_stage && (
-                <Text style={styles.jobLine}>
-                  Етап: {latestJob.progress_stage}
-                </Text>
-              )}
-              {!!latestJob.error_text && (
-                <Text style={styles.jobError}>{latestJob.error_text}</Text>
-              )}
-            </View>
-          ) : (
-            <Text style={styles.mutedText}>Ще немає задач на AI-пазли</Text>
-          )}
+          <View style={styles.jobBox}>
+            <Text style={styles.jobLine}>
+              Статус: {profile?.is_premium ? "active" : "locked"}
+            </Text>
+            <Text style={styles.jobLine}>
+              План: {profile?.premium_plan || "premium_monthly"}
+            </Text>
+            <Text style={styles.jobLine}>
+              Дата завершення: {profile?.premium_expires_at || "—"}
+            </Text>
+          </View>
         </View>
 
         <Pressable
@@ -409,15 +380,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  mutedText: {
-    color: "#9CA3AF",
-    fontSize: 14,
-  },
-  statusText: {
-    color: "#93C5FD",
-    fontSize: 14,
-    textAlign: "center",
-  },
   jobBox: {
     backgroundColor: "rgba(255,255,255,0.05)",
     borderRadius: 14,
@@ -427,10 +389,6 @@ const styles = StyleSheet.create({
   jobLine: {
     color: "#E5E7EB",
     fontSize: 14,
-  },
-  jobError: {
-    color: "#FCA5A5",
-    fontSize: 13,
   },
   errorText: {
     color: "#FCA5A5",

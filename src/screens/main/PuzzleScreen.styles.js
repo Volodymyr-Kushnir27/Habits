@@ -26,15 +26,15 @@ const styles = StyleSheet.create({
   },
 
   emptyWrap: {
-    flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 18,
+    width: '100%',
+    paddingTop: 16,
   },
 
   emptyText: {
     color: '#A9B8D3',
     fontSize: 16,
     marginTop: 16,
+    lineHeight: 22,
   },
 
   container: {
@@ -93,6 +93,304 @@ const styles = StyleSheet.create({
   flameBadgeText: {
     color: '#DCEBFF',
     fontWeight: '700',
+  },
+
+  tabsWrap: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 18,
+  },
+
+  tabButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+
+  tabButtonActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+    ...webGlow,
+  },
+
+  tabButtonText: {
+    color: '#AFC3E6',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  tabButtonTextActive: {
+    color: '#FFFFFF',
+  },
+
+  paywallCard: {
+    borderRadius: 22,
+    padding: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.22)',
+  },
+
+  paywallHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+
+  paywallTitle: {
+    color: '#F7FAFF',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+
+  paywallText: {
+    color: '#C7D6EE',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 8,
+  },
+
+  paywallBullet: {
+    color: '#C7D6EE',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 6,
+  },
+
+  paywallStatusBox: {
+    marginTop: 10,
+    marginBottom: 4,
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+
+  paywallStatusLabel: {
+    color: '#8EA4C8',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+
+  paywallStatusValue: {
+    color: '#F7FAFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  premiumCard: {
+    borderRadius: 22,
+    padding: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(103,168,255,0.16)',
+    marginBottom: 14,
+  },
+
+  premiumHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+
+  premiumCardTitle: {
+    color: '#F7FAFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.22)',
+  },
+
+  premiumBadgeText: {
+    color: '#CFFFE0',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  premiumInfoText: {
+    color: '#AFC3E6',
+    fontSize: 13,
+    marginBottom: 14,
+  },
+
+  label: {
+    color: '#EAF2FF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+
+  promptInput: {
+    minHeight: 110,
+    borderRadius: 16,
+    backgroundColor: '#0E1628',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    color: '#F4F8FF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    marginBottom: 14,
+  },
+
+  premiumButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  secondaryActionButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  secondaryActionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+
+  primaryActionButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  primaryActionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+
+  selectedImageWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 14,
+  },
+
+  selectedImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 14,
+    backgroundColor: '#0E1628',
+  },
+
+  selectedImageMeta: {
+    flex: 1,
+  },
+
+  selectedImageTitle: {
+    color: '#F7FAFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+
+  selectedImageText: {
+    color: '#AFC3E6',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  selectedImagePlaceholder: {
+    minHeight: 72,
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  selectedImagePlaceholderText: {
+    color: '#8EA4C8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  cooldownBox: {
+    borderRadius: 16,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+
+  cooldownLabel: {
+    color: '#8EA4C8',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+
+  cooldownValue: {
+    color: '#F7FAFF',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+
+  cooldownMeta: {
+    color: '#AFC3E6',
+    fontSize: 12,
+    marginTop: 6,
+  },
+
+  jobInfoWrap: {
+    gap: 8,
+  },
+
+  jobInfoLine: {
+    color: '#E5E7EB',
+    fontSize: 14,
+  },
+
+  jobPrompt: {
+    color: '#CFE0FF',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+
+  jobErrorText: {
+    color: '#FCA5A5',
+    fontSize: 13,
+    lineHeight: 19,
   },
 
   navRow: {

@@ -43,58 +43,38 @@ export async function getFlameStats() {
   return { earned, spent, available };
 }
 
-export async function enqueueAvatarGenerationJob({ avatarPath }) {
-  const user = await getCurrentUser();
-
-  if (!avatarPath) {
-    throw new Error('avatarPath is required');
-  }
-
-  const { data, error } = await supabase
-    .from('avatar_generation_jobs')
-    .insert({
-      user_id: user.id,
-      avatar_path: avatarPath,
-      status: 'pending',
-      progress_stage: 'queued',
-      progress_percent: 0,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function getMyLatestAvatarJob() {
-  const user = await getCurrentUser();
-
-  const { data, error } = await supabase
-    .from('avatar_generation_jobs')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data || null;
-}
-
-export async function getMyAvatarVariants(jobId) {
-  const user = await getCurrentUser();
-
-  if (!jobId) return [];
-
+export async function getFreeCatalogPuzzles() {
   const { data, error } = await supabase
     .from('avatar_variants')
     .select('*')
-    .eq('user_id', user.id)
-    .eq('job_id', jobId)
-    .order('idx', { ascending: true });
+    .eq('variant_type', 'free_catalog')
+    .eq('is_public', true)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
 
   if (error) throw error;
   return data || [];
+}
+
+export async function getPremiumStubState() {
+  const user = await getCurrentUser();
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('is_premium, premium_expires_at, premium_plan')
+    .eq('id', user.id)
+    .single();
+
+  if (error) throw error;
+
+  const expiresAt = data?.premium_expires_at || null;
+  const isPremium = !!data?.is_premium;
+
+  return {
+    isPremium,
+    premiumExpiresAt: expiresAt,
+    premiumPlan: data?.premium_plan || 'premium_monthly',
+  };
 }
 
 export async function getUnlockedPieceIndexes(variantId) {
@@ -124,87 +104,61 @@ export async function unlockPuzzlePiece({ variantId, pieceIndex }) {
     .maybeSingle();
 
   if (existingError) throw existingError;
-  if (existing) return { alreadyUnlocked: true, completed: false };
-
-  const { error } = await supabase
-    .from('avatar_puzzle_unlocks')
-    .insert({
-      user_id: user.id,
-      variant_id: variantId,
-      piece_index: pieceIndex,
-    });
-
-  if (error) throw error;
+  if (existing) {
+    return {
+      alreadyUnlocked: true,
+      completed: false,
+      openedPieces: null,
+      totalPieces: null,
+    };
+  }
 
   const { data: variant, error: variantError } = await supabase
     .from('avatar_variants')
-    .select('pieces_count')
+    .select('id, pieces_count')
     .eq('id', variantId)
     .single();
 
   if (variantError) throw variantError;
+
+  const earned = await getEarnedFlamesCount(user.id);
+  const spent = await getSpentFlamesCount(user.id);
+
+  if (earned - spent <= 0) {
+    throw new Error('Недостатньо вогників для відкриття пазла');
+  }
+
+  const { error: insertError } = await supabase
+    .from('avatar_puzzle_unlocks')
+    .insert({
+      user_id: user.id,
+      variant_id: variant.id,
+      piece_index: pieceIndex,
+    });
+
+  if (insertError) throw insertError;
 
   const { count, error: countError } = await supabase
     .from('avatar_puzzle_unlocks')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .eq('variant_id', variantId);
+    .eq('variant_id', variant.id);
 
   if (countError) throw countError;
 
-  let completed = false;
-
-  if ((count || 0) >= (variant?.pieces_count || 0)) {
-    const { error: updateError } = await supabase
-      .from('avatar_variants')
-      .update({
-        is_completed: true,
-        completed_at: new Date().toISOString(),
-      })
-      .eq('id', variantId)
-      .eq('user_id', user.id);
-
-    if (updateError) throw updateError;
-    completed = true;
-  }
+  const openedPieces = count || 0;
+  const totalPieces = variant.pieces_count || 0;
 
   return {
     alreadyUnlocked: false,
-    completed,
+    completed: openedPieces >= totalPieces,
+    openedPieces,
+    totalPieces,
   };
 }
 
-export async function markVariantCompleted({ variantId, generatedPath, generatedUrl }) {
-  const user = await getCurrentUser();
-
-  const { error: variantError } = await supabase
-    .from('avatar_variants')
-    .update({
-      is_completed: true,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', variantId)
-    .eq('user_id', user.id);
-
-  if (variantError) throw variantError;
-
-  const { data, error: profileError } = await supabase
-    .from('profiles')
-    .update({
-      completed_avatar_variant_id: variantId,
-      completed_avatar_path: generatedPath,
-      completed_avatar_url: generatedUrl,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', user.id)
-    .select()
-    .single();
-
-  if (profileError) throw profileError;
-  return data;
-}
-
 export function getPublicImageUrl(bucket, path) {
+  if (!bucket || !path) return null;
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
+  return data?.publicUrl || null;
 }
